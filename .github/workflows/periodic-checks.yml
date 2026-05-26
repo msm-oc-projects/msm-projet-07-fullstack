@@ -1,0 +1,48 @@
+name: Periodic Checks
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests-and-security:
+    name: Weekly tests and dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+
+      - name: Backend tests
+        working-directory: back
+        run: ./gradlew clean test
+
+      - name: Frontend tests
+        working-directory: front
+        run: |
+          npm ci
+          npm run test:ci
+
+      - name: Frontend dependency audit
+        working-directory: front
+        run: npm audit --audit-level=high
+
+      - name: Docker Compose validation
+        run: docker compose config

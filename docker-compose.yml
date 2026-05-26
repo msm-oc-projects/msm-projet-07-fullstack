@@ -1,0 +1,36 @@
+services:
+  back:
+    image: orion-microcrm-back:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: back
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  front:
+    image: orion-microcrm-front:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: front
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      back:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

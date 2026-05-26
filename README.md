@@ -1,155 +1,191 @@
-<p align="center">
-   <img src="./front/src/favicon.png" width="192px" />
-</p>
+# Orion MicroCRM
 
-# MicroCRM (P7 - Développeur Full-Stack - Java et Angular - Mettez en œuvre l'intégration et le déploiement continu d'une application Full-Stack)
+Application full-stack de demonstration pour Orion, composee d'un backend Java Spring Boot 3 et d'un frontend Angular 17.
 
-MicroCRM est une application de démonstration basique ayant pour être objectif de servir de socle pour le module "P7 - Développeur Full-Stack".
+L'ancien README fourni avec le projet est conserve dans `README.original.md`.
 
-L'application MicroCRM est une implémentation simplifiée d'un ["CRM" (Customer Relationship Management)](https://fr.wikipedia.org/wiki/Gestion_de_la_relation_client). Les fonctionnalités sont limitées à la création, édition et la visualisations des individus liés à des organisations.
+## Architecture
 
-![Page d'accueil](./misc/screenshots/screenshot_1.png)
-![Édition de la fiche d'un individu](./misc/screenshots/screenshot_2.png)
+- `back/` : API REST Spring Boot, Java 17, Gradle, JPA et base HSQLDB embarquee.
+- `front/` : application Angular 17 servie en developpement par Angular CLI et en production par Caddy.
+- `Dockerfile` : images multi-stage pour le frontend, le backend et le mode standalone.
+- `docker-compose.yml` : orchestration locale des services `front` et `back`.
+- `.github/workflows/` : workflows GitHub Actions pour CI, controles periodiques et deploiement.
+- `docs/technical-documentation.md` : documentation technique du pipeline, du deploiement, du testing periodique et du plan de securite.
 
-## Code source
+## Prerequis
 
-### Organisation
+- Java 17
+- Node.js 20 et npm
+- Docker et Docker Compose
+- Google Chrome ou Chromium pour les tests Angular
 
-Ce [monorepo](https://en.wikipedia.org/wiki/Monorepo) contient les 2 composantes du projet "MicroCRM":
+## Lancement local depuis les sources
 
-- La partie serveur (ou "backend"), en Java SpringBoot 3;
-- La partie cliente (ou "frontend"), en Angular 17.
+### Backend
 
-### Démarrer avec les sources
-
-#### Serveur
-
-##### Dépendances
-
-- [OpenJDK >= 17](https://openjdk.org/)
-
-##### Procédure
-
-1. Se positionner dans le répertoire `back` avec une invite de commande:
-
-   ```shell
-   cd back
-   ```
-
-2. Construire le JAR:
-
-   ```shell
-   # Sur Linux
-   ./gradlew build
-
-   # Sur Windows
-   gradlew.bat build
-   ```
-
-3. Démarrer le service:
-
-   ```shell
-   java -jar build/libs/microcrm-0.0.1-SNAPSHOT.jar
-   ```
-
-Puis ouvrir l'URL http://localhost:8080 dans votre navigateur.
-
-#### Client
-
-##### Dépendances
-
-- [NPM >= 10.2.4](https://www.npmjs.com/)
-
-##### Procédure
-
-1. Se positionner dans le répertoire `front` avec une invite de commande:
-
-   ```shell
-   cd front
-   ```
-
-2. (La première fois seulement) Installer les dépendances NodeJS:
-
-   ```shell
-   npm install
-   ```
-
-3. Démarrer le service de développement:
-
-   ```shell
-   npx @angular/cli serve
-   ```
-
-Puis ouvrir l'URL http://localhost:4200 dans votre navigateur.
-
-### Exécution des tests
-
-#### Client
-
-**Dépendances**
-
-- Google Chrome ou Chromium
-
-Dans votre terminal:
-
-```shell
-cd front
-CHROME_BIN=</path/to/google/chrome> npm test
-```
-
-#### Serveur
-
-Dans votre terminal:
-
-```shell
+```bash
 cd back
-./gradlew test
+./gradlew bootRun
 ```
 
-### Images Docker
+API disponible sur `http://localhost:8080`.
 
-#### Client
+### Frontend
 
-##### Construire l'image
+```bash
+cd front
+npm ci
+npm start
+```
 
-```shell
+Application disponible sur `http://localhost:4200`.
+
+## Tests
+
+### Backend
+
+```bash
+cd back
+./gradlew clean test
+```
+
+### Frontend
+
+Sous Linux ou WSL avec Chrome installe dans Linux :
+
+```bash
+cd front
+export CHROME_BIN=/usr/bin/google-chrome
+npm ci
+npm run test:ci
+```
+
+Sous Windows PowerShell :
+
+```powershell
+cd front
+$env:CHROME_BIN="C:\Program Files\Google\Chrome\Application\chrome.exe"
+npm.cmd run test:ci
+```
+
+## Docker
+
+### Construire les images
+
+```bash
+docker build --target back -t orion-microcrm-back:latest .
 docker build --target front -t orion-microcrm-front:latest .
 ```
 
-##### Exécuter l'image
+### Lancer avec Docker Compose
 
-```shell
-docker run -it --rm -p 80:80 -p 443:443 orion-microcrm-front:latest
+```bash
+docker compose up --build -d
 ```
 
-L'application sera disponible sur https://localhost.
+Services exposes :
 
-#### Serveur
+- Frontend : `http://localhost` et `https://localhost`
+- Backend : `http://localhost:8080`
 
-##### Construire l'image
+Verifier l'etat :
 
-```shell
-docker build --target back -t orion-microcrm-back:latest .
+```bash
+docker compose ps
+docker compose logs -f
 ```
 
-##### Exécuter l'image
+Arreter :
 
-```shell
-docker run -it --rm -p 8080:8080 orion-microcrm-back:latest
+```bash
+docker compose down
 ```
 
-L'API sera disponible sur http://localhost:8080.
+## Pipeline CI/CD
 
-#### Tout en un
+Les workflows GitHub Actions sont situes dans `.github/workflows/`.
 
-```shell
-docker build --target standalone -t orion-microcrm-standalone:latest .
+### CI
+
+Le workflow `ci.yml` s'execute sur push et pull request vers `main`.
+
+Il realise :
+
+- build et tests backend avec Gradle ;
+- generation de couverture Jacoco ;
+- installation frontend avec `npm ci` ;
+- tests Angular en Chrome Headless avec couverture LCOV ;
+- build Angular ;
+- analyse SonarCloud ;
+- build des images Docker ;
+- validation de `docker-compose.yml` ;
+- demarrage de l'application via Docker Compose pour verifier la conteneurisation.
+
+### Controles periodiques
+
+Le workflow `periodic-checks.yml` s'execute chaque lundi a 05:00 UTC et peut etre lance manuellement.
+
+Il realise :
+
+- tests backend ;
+- tests frontend ;
+- audit npm avec seuil `high` ;
+- validation Docker Compose.
+
+### Deploiement
+
+Le workflow `deploy.yml` est declenche manuellement depuis GitHub Actions.
+
+Il se connecte au serveur cible en SSH, met a jour le depot sur `origin/main`, reconstruit les images et redemarre les services avec Docker Compose.
+
+## Secrets GitHub requis
+
+Pour SonarCloud :
+
+- `SONAR_TOKEN`
+
+Pour le deploiement :
+
+- `DEPLOY_HOST` : hote cible.
+- `DEPLOY_USER` : utilisateur SSH.
+- `DEPLOY_SSH_KEY` : cle privee SSH.
+- `DEPLOY_PATH` : chemin du depot clone sur le serveur.
+
+## SonarCloud
+
+La configuration est centralisee dans `sonar-project.properties`.
+
+Parametres attendus :
+
+- organization : `msm-oc-projects`
+- project key : `msm-oc-projects_msm-projet-07-fullstack`
+
+Si le projet SonarCloud utilise une autre cle, adaptez `sonar-project.properties`.
+
+## Plan de securite
+
+- Analyse statique SonarCloud a chaque push et pull request.
+- Audit npm hebdomadaire avec blocage sur vulnerabilites elevees.
+- Secrets stockes dans GitHub Secrets, jamais dans le depot.
+- Images Docker construites depuis des images officielles et limitees aux artefacts necessaires.
+- Exposition limitee aux ports applicatifs requis.
+- Bonnes pratiques OWASP : validation des entrees, logs sans secrets, principe du moindre privilege et mises a jour regulieres.
+
+## Plan de sauvegarde
+
+L'application utilise actuellement une base HSQLDB embarquee adaptee a la demonstration. Pour un environnement durable :
+
+- sauvegarde quotidienne de la base applicative ;
+- retention de 7 sauvegardes quotidiennes, 4 hebdomadaires et 12 mensuelles ;
+- test de restauration mensuel ;
+- stockage chiffre hors serveur applicatif ;
+- definition d'un RPO/RTO cible dans la documentation d'exploitation.
+
+## Documentation technique
+
+La documentation detaillee du pipeline, du deploiement, du plan de securite et du plan de testing periodique se trouve dans :
+
+```text
+docs/technical-documentation.md
 ```
-
-##### Exécuter l'image
-
-```shell
-docker run -it --rm -p 8080:8080 -p 80:80 -p 443:443 orion-microcrm-standalone:latest
-```
-
-L'application sera disponible sur https://localhost et l'API sur http://localhost:8080.
