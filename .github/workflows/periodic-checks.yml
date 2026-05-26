@@ -32,7 +32,9 @@ jobs:
 
       - name: Backend tests
         working-directory: back
-        run: ./gradlew clean test
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean test
 
       - name: Frontend tests
         working-directory: front

@@ -29,7 +29,9 @@ jobs:
           cache: gradle
 
       - name: Build and test backend
-        run: ./gradlew clean build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean build
 
       - name: Upload backend test reports
         if: always()
@@ -100,7 +102,9 @@ jobs:
 
       - name: Generate backend coverage
         working-directory: back
-        run: ./gradlew test jacocoTestReport
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test jacocoTestReport
 
       - name: Generate frontend coverage
         working-directory: front
