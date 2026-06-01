@@ -502,7 +502,7 @@ Chaque semaine :
 
 - tests backend ;
 - tests frontend ;
-- audit npm ;
+- audit des dependances frontend avec `npm audit --audit-level=high` ;
 - validation Docker Compose.
 
 Avant release ou deploiement :
@@ -542,7 +542,7 @@ La frequence retenue est la suivante :
 | --- | --- | --- |
 | Pull request | A chaque PR vers `main` | Tests, build, SonarCloud, Docker |
 | Push | A chaque push vers `main` | Tests, build, SonarCloud, Docker |
-| Periodique | Chaque lundi a 05:00 UTC | Tests, audit npm, Compose |
+| Periodique | Chaque lundi a 05:00 UTC | Tests, audit des dependances frontend, Compose |
 | Deploiement | Manuel | Rebuild et redemarrage Compose |
 
 Cette frequence assure un controle continu tout en limitant les executions inutiles.
@@ -1169,6 +1169,7 @@ Creation de la GitHub Release :
 | `npm ci` | Installer les dependances frontend de facon reproductible | `front/package-lock.json`, `.github/workflows/ci.yml` | CI, build Docker et local |
 | `npm run test:ci` | Lancer les tests Angular en mode headless avec couverture | `front/package.json`, `.github/workflows/ci.yml` | CI, controles periodiques et local |
 | `npm run build` | Construire l'application Angular | `front/package.json`, `.github/workflows/ci.yml` | CI et local |
+| `npm audit --audit-level=high --json` | Controler les vulnerabilites elevees des dependances frontend et produire un rapport exploitable | `.github/workflows/periodic-checks.yml`, `front/package-lock.json` | Controle periodique hebdomadaire |
 | `SonarSource/sonarqube-scan-action@v7` | Analyser qualite, securite, code smells et quality gate | `.github/workflows/ci.yml`, `sonar-project.properties` | CI apres generation des couvertures |
 | `docker build --target back` | Construire l'image backend | `Dockerfile`, `.github/workflows/ci.yml` | CI et local |
 | `docker build --target front` | Construire l'image frontend | `Dockerfile`, `.github/workflows/ci.yml` | CI et local |
