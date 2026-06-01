@@ -158,10 +158,11 @@ A court terme, la publication d'images dans un registre Docker peut etre ajoutee
 
 ### 2.1 Structure du pipeline
 
-Le workflow principal est `.github/workflows/ci.yml`. Il s'execute sur deux evenements :
+Le workflow principal est `.github/workflows/ci.yml`. Il s'execute sur trois evenements :
 
 - `push` vers la branche `main` ;
 - `pull_request` vers la branche `main`.
+- `workflow_dispatch` pour relancer manuellement une verification complete depuis GitHub Actions.
 
 La structure du pipeline est organisee en plusieurs jobs :
 
@@ -184,6 +185,8 @@ Le job backend realise les actions suivantes :
 4. execution de `./gradlew clean build` ;
 5. publication des rapports de tests et de couverture comme artefacts.
 
+Le projet backend utilise Gradle et non Maven. Le pipeline s'appuie donc sur le wrapper `./gradlew` fourni par le depot afin de garantir une execution reproductible sans dependance a une installation locale de Maven ou de Gradle sur le runner.
+
 Le job frontend realise les actions suivantes :
 
 1. recuperation du code source ;
@@ -200,7 +203,8 @@ Le job SonarCloud realise les actions suivantes :
 2. installation de Java et Node.js ;
 3. generation de la couverture backend Jacoco ;
 4. generation de la couverture frontend LCOV ;
-5. execution de `SonarSource/sonarqube-scan-action@v7`.
+5. execution de `SonarSource/sonarqube-scan-action@v7` ;
+6. attente du quality gate SonarCloud afin de faire echouer la CI si le niveau qualite/securite attendu n'est pas respecte.
 
 Le job Docker realise les actions suivantes :
 
@@ -216,15 +220,15 @@ Le job Docker realise les actions suivantes :
 
 Les actions utilisees sont des actions officielles ou largement maintenues :
 
-- `actions/checkout@v4` : recuperation du code source ;
-- `actions/setup-java@v4` : installation de Java et cache Gradle ;
-- `actions/setup-node@v4` : installation de Node.js et cache npm ;
-- `actions/upload-artifact@v4` : conservation des rapports ;
-- `docker/setup-buildx-action@v3` : preparation des builds Docker modernes ;
-- `docker/build-push-action@v6` : build des images Docker ;
+- `actions/checkout@v6` : recuperation du code source ;
+- `actions/setup-java@v5` : installation de Java et cache Gradle ;
+- `actions/setup-node@v6` : installation de Node.js et cache npm ;
+- `actions/upload-artifact@v7` : conservation des rapports ;
+- `docker/setup-buildx-action@v4` : preparation des builds Docker modernes ;
+- `docker/build-push-action@v7` : build des images Docker ;
 - `SonarSource/sonarqube-scan-action@v7` : analyse SonarCloud.
 
-Ces actions sont choisies pour leur maintenance active, leur integration native avec GitHub Actions et leur lisibilite. Les versions sont fixees par version majeure afin de limiter les regressions tout en conservant les mises a jour compatibles.
+Ces actions sont choisies pour leur maintenance active, leur integration native avec GitHub Actions et leur lisibilite. Les versions sont fixees par version majeure afin de limiter les regressions tout en conservant les mises a jour compatibles. Les permissions du workflow sont limitees a `contents: read` et `pull-requests: read`, car la CI doit lire le code et les pull requests sans publier de packages ni modifier le depot.
 
 ### 2.4 Scripts d'automatisation
 
