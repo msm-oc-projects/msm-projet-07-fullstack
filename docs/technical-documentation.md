@@ -403,6 +403,8 @@ Le serveur cible doit disposer de :
 
 Les secrets utilises par le workflow sont stockes dans GitHub Secrets ou dans les secrets d'environnement GitHub. Aucune valeur sensible n'est declaree dans le depot. Le workflow supprime egalement la cle SSH temporaire du runner a la fin du job.
 
+Le workflow verifie la presence de `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` et `DEPLOY_PATH` avant toute connexion SSH. Si l'un de ces secrets est absent, le deploiement s'arrete avec un message explicite. Cette verification evite les erreurs peu lisibles comme `ssh-keyscan -H ""`, qui indiquent que le secret `DEPLOY_HOST` n'est pas configure pour l'environnement selectionne.
+
 Les commandes importantes du deploiement sont :
 
 | Commande | Objectif | Definition | Moment d'execution |
