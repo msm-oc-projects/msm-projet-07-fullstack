@@ -57,6 +57,7 @@ Le pipeline mis en place repose sur GitHub Actions. Il est decoupe en trois work
 - `ci.yml` : integration continue declenchee sur push et pull request vers `main` ;
 - `periodic-checks.yml` : controles periodiques hebdomadaires ;
 - `deploy.yml` : deploiement continu via SSH et Docker Compose, automatique vers `staging` apres une CI verte sur `main`, et manuel vers `staging` ou `production`.
+- `release.yml` : creation d'une release GitHub versionnee a partir d'un tag SemVer.
 
 Le pipeline CI execute les tests backend, les tests frontend, le build des deux parties, l'analyse SonarCloud, le build des images Docker et une validation de l'orchestration Docker Compose. Le deploiement staging peut etre declenche automatiquement apres succes de la CI sur `main`. Le deploiement production reste manuel afin de conserver un controle humain avant modification de l'environnement cible.
 
@@ -416,6 +417,37 @@ Les commandes importantes du deploiement sont :
 | `docker image prune -f` | Nettoyer les images non utilisees pour limiter l'occupation disque | `.github/workflows/deploy.yml` | CD, fin de deploiement |
 
 La strategie actuelle correspond a un deploiement simple adapte au scenario. Pour une production plus avancee, il serait pertinent d'ajouter un registre d'images, une strategie blue/green ou un rollback automatise.
+
+### 3.5 Automatisation des releases
+
+Le workflow `.github/workflows/release.yml` automatise la creation des releases GitHub a partir d'un tag SemVer stable. Il est declenche lors d'un push de tag au format `vMAJOR.MINOR.PATCH`, par exemple `v1.0.0`, ou manuellement via `workflow_dispatch` en indiquant un tag existant.
+
+La politique de versioning retenue suit SemVer :
+
+- `MAJOR` : changement incompatible ou rupture d'API/comportement ;
+- `MINOR` : ajout fonctionnel compatible ;
+- `PATCH` : correction compatible sans nouvelle fonctionnalite majeure.
+
+Les tags acceptes par le workflow sont volontairement limites au format stable `vX.Y.Z`. Les versions de type release candidate, par exemple `v1.0.0-rc.1`, ne sont pas publiees automatiquement par ce workflow afin de garder un processus simple. Une release de test peut etre realisee avec un tag stable de faible version, par exemple `v0.1.0`, puis supprimee si elle ne doit pas rester visible.
+
+La release implique une action humaine : la creation et le push du tag Git. Il n'y a pas de release candidate creee a chaque commit, car cela produirait trop de bruit et ne correspond pas au niveau de maturite du projet. Il n'est pas prevu de creer une branche par release dans ce scenario ; la branche `main` reste la source de verite, et les tags identifient les versions publiees.
+
+Le workflow realise les etapes suivantes :
+
+1. validation stricte du tag SemVer ;
+2. checkout du code correspondant au tag ;
+3. build backend avec Gradle ;
+4. build frontend avec npm ;
+5. packaging du JAR backend et du build Angular ;
+6. publication des artefacts dans GitHub Actions ;
+7. creation de la GitHub Release avec notes generees automatiquement.
+
+Les artefacts publies sont :
+
+- `orion-microcrm-back-<version>.jar` : JAR Spring Boot construit depuis `back/build/libs/` ;
+- `orion-microcrm-front-<version>.tar.gz` : archive du build Angular produit dans `front/dist/microcrm/browser`.
+
+Les artefacts ne doivent contenir aucun secret. Le backend est publie sous forme de JAR applicatif, et le frontend sous forme de fichiers statiques. Les dossiers locaux, dependances et fichiers sensibles restent exclus par `.gitignore`, `.dockerignore` et par le packaging explicite du workflow.
 
 ## 4. Plan de testing periodique
 
@@ -941,6 +973,25 @@ docker compose ps
 docker compose logs --tail=100
 ```
 
+Declenchement des releases :
+
+```yaml
+on:
+  push:
+    tags:
+      - "v*.*.*"
+```
+
+Creation de la GitHub Release :
+
+```yaml
+- name: Create GitHub release
+  uses: softprops/action-gh-release@v3
+  with:
+    generate_release_notes: true
+    files: release-assets/*
+```
+
 ### Annexe D - Checklist de validation avant deploiement
 
 - La branche `main` est a jour.
@@ -971,3 +1022,28 @@ docker compose logs --tail=100
 | `docker compose ps` | Verifier l'etat des services | `docker-compose.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml` | CI, CD et local |
 | `docker compose logs --tail=100` | Rendre les logs de demarrage exploitables | `.github/workflows/deploy.yml` | CD apres redemarrage |
 | `docker compose down --remove-orphans` | Arreter et nettoyer les services de validation | `.github/workflows/ci.yml` | CI et local |
+| `tar -czf orion-microcrm-front-<version>.tar.gz` | Packager le build Angular sans dependances locales ni secrets | `.github/workflows/release.yml` | Release sur tag SemVer |
+| `softprops/action-gh-release@v3` | Creer la GitHub Release et joindre les artefacts | `.github/workflows/release.yml` | Release sur tag SemVer |
+
+### Annexe F - Procedure de release
+
+Etapes recommandees :
+
+1. verifier que la branche `main` est a jour ;
+2. verifier que le dernier workflow CI est vert ;
+3. creer un tag SemVer stable ;
+4. pousser le tag vers GitHub ;
+5. verifier le workflow `Release` ;
+6. telecharger les artefacts depuis la GitHub Release ;
+7. lancer le JAR et verifier que le frontend archive contient bien `index.html`.
+
+Commandes :
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Pour une release de test, utiliser un tag comme `v0.1.0`. Le workflow ne cree pas automatiquement de release candidate a chaque commit.

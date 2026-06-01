@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing SemVer tag to release, for example v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  JAVA_VERSION: "17"
+  NODE_VERSION: "20"
+
+jobs:
+  release:
+    name: Build artifacts and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must follow stable SemVer format vMAJOR.MINOR.PATCH, for example v1.0.0." >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release_tag.outputs.tag }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Build backend artifact
+        working-directory: back
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean build
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+
+      - name: Build frontend artifact
+        working-directory: front
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.release_tag.outputs.version }}"
+          mkdir -p release-assets
+
+          cp back/build/libs/microcrm-0.0.1-SNAPSHOT.jar "release-assets/orion-microcrm-back-${VERSION}.jar"
+          tar -czf "release-assets/orion-microcrm-front-${VERSION}.tar.gz" -C front/dist/microcrm/browser .
+
+          test -s "release-assets/orion-microcrm-back-${VERSION}.jar"
+          test -s "release-assets/orion-microcrm-front-${VERSION}.tar.gz"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-artifacts-${{ steps.release_tag.outputs.tag }}
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          name: Orion MicroCRM ${{ steps.release_tag.outputs.tag }}
+          generate_release_notes: true
+          files: release-assets/*
