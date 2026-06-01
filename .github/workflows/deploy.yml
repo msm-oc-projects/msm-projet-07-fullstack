@@ -1,6 +1,10 @@
 name: Deploy
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -15,14 +19,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_run' && 'staging' || inputs.environment }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy with Docker Compose
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    environment: ${{ github.event_name == 'workflow_run' && 'staging' || inputs.environment }}
     steps:
       - name: Configure SSH
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
@@ -30,12 +41,23 @@ jobs:
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Update server and restart services
+        shell: bash
         run: |
+          set -euo pipefail
           ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" << 'EOF'
             set -e
             cd "${{ secrets.DEPLOY_PATH }}"
             git fetch origin main
-            git reset --hard origin/main
+            git checkout main
+            git pull --ff-only origin main
+            docker compose config
             docker compose up --build -d --remove-orphans
+            docker compose ps
+            docker compose logs --tail=100
             docker image prune -f
           EOF
+
+      - name: Remove SSH key
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/deploy_key

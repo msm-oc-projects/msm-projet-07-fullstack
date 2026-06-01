@@ -56,9 +56,9 @@ Le pipeline mis en place repose sur GitHub Actions. Il est decoupe en trois work
 
 - `ci.yml` : integration continue declenchee sur push et pull request vers `main` ;
 - `periodic-checks.yml` : controles periodiques hebdomadaires ;
-- `deploy.yml` : deploiement manuel via SSH et Docker Compose.
+- `deploy.yml` : deploiement continu via SSH et Docker Compose, automatique vers `staging` apres une CI verte sur `main`, et manuel vers `staging` ou `production`.
 
-Le pipeline CI execute les tests backend, les tests frontend, le build des deux parties, l'analyse SonarCloud, le build des images Docker et une validation de l'orchestration Docker Compose. Le deploiement reste manuel afin de conserver un controle humain avant modification d'un environnement cible.
+Le pipeline CI execute les tests backend, les tests frontend, le build des deux parties, l'analyse SonarCloud, le build des images Docker et une validation de l'orchestration Docker Compose. Le deploiement staging peut etre declenche automatiquement apres succes de la CI sur `main`. Le deploiement production reste manuel afin de conserver un controle humain avant modification de l'environnement cible.
 
 ### 1.5 Plans prealables a l'automatisation
 
@@ -143,16 +143,18 @@ Les principes retenus sont :
 
 Le fichier `docker-compose.yml` a pour role d'orchestrer localement ou sur un serveur simple les services `front` et `back`. Il permet de reconstruire les images, demarrer les conteneurs, exposer les ports et verifier leur etat via des healthchecks. Il constitue donc le socle de validation de la conteneurisation dans la CI et le support de deploiement dans le scenario actuel.
 
-La strategie de deploiement envisagee est progressive :
+La strategie de deploiement retenue est progressive :
 
-- dans un premier temps, deploiement manuel declenche par `workflow_dispatch` afin de conserver une validation humaine ;
+- deploiement staging automatique apres succes du workflow CI sur `main` ;
+- deploiement manuel declenche par `workflow_dispatch` pour `staging` ou `production` ;
 - connexion SSH au serveur cible ;
 - recuperation de la derniere version validee de `main` ;
+- validation de la configuration Docker Compose ;
 - reconstruction des images sur le serveur ;
 - redemarrage des services avec Docker Compose ;
 - verification des conteneurs et des logs apres deploiement.
 
-A court terme, la publication d'images dans un registre Docker peut etre ajoutee pour eviter de reconstruire sur le serveur cible. Dans ce modele, la CI publierait des images versionnees apres validation, puis le deploiement ne ferait que tirer les images approuvees et relancer Compose. Pour une production plus mature, il faudrait aussi prevoir une strategie de rollback, une gestion d'environnements separes et un scan des images.
+A court terme, la publication d'images dans un registre Docker peut etre ajoutee pour eviter de reconstruire sur le serveur cible. Dans ce modele, la CI publierait des images versionnees apres validation, puis le deploiement ne ferait que tirer les images approuvees et relancer Compose. Pour le scenario actuel, la reconstruction sur serveur reste plus simple et limite les secrets necessaires. Pour une production plus mature, il faudrait aussi prevoir une strategie de rollback, une gestion d'environnements separes et un scan des images.
 
 ## 2. Etapes de mise en oeuvre du pipeline CI/CD
 
@@ -379,9 +381,14 @@ docker compose down
 
 ### 3.4 Strategie de deploiement
 
-Le deploiement est gere par le workflow `.github/workflows/deploy.yml`. Il est declenche manuellement via `workflow_dispatch`. Ce choix permet de garder une validation humaine avant de modifier l'environnement cible.
+Le deploiement est gere par le workflow `.github/workflows/deploy.yml`. Il peut etre declenche de deux manieres :
 
-Le workflow se connecte en SSH au serveur cible, se place dans le dossier du depot, recupere la derniere version de `main`, reconstruit les images et redemarre les services avec Docker Compose.
+- automatiquement apres succes du workflow `CI` sur la branche `main`, pour l'environnement `staging` ;
+- manuellement via `workflow_dispatch`, pour l'environnement `staging` ou `production`.
+
+Ce choix garde une automatisation utile pour tester la chaine de deploiement en staging, tout en conservant une validation humaine avant modification de la production.
+
+Le workflow se connecte en SSH au serveur cible, se place dans le dossier du depot, recupere la derniere version de `main`, valide Docker Compose, reconstruit les images et redemarre les services avec Docker Compose.
 
 Le serveur cible doit disposer de :
 
@@ -391,6 +398,22 @@ Le serveur cible doit disposer de :
 - un utilisateur dedie au deploiement ;
 - un acces SSH configure ;
 - un clone du depot dans le chemin declare par `DEPLOY_PATH`.
+
+Les secrets utilises par le workflow sont stockes dans GitHub Secrets ou dans les secrets d'environnement GitHub. Aucune valeur sensible n'est declaree dans le depot. Le workflow supprime egalement la cle SSH temporaire du runner a la fin du job.
+
+Les commandes importantes du deploiement sont :
+
+| Commande | Objectif | Definition | Moment d'execution |
+| --- | --- | --- | --- |
+| `ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}"` | Ajouter l'hote cible dans `known_hosts` sans exposer l'adresse dans le code | `.github/workflows/deploy.yml` | CD, avant connexion SSH |
+| `git fetch origin main` | Recuperer les references recentes de la branche principale | `.github/workflows/deploy.yml` | CD, sur le serveur cible |
+| `git checkout main` | Se placer sur la branche de deploiement attendue | `.github/workflows/deploy.yml` | CD, sur le serveur cible |
+| `git pull --ff-only origin main` | Mettre a jour le serveur sans reecriture destructrice de l'historique local | `.github/workflows/deploy.yml` | CD, sur le serveur cible |
+| `docker compose config` | Valider la syntaxe et la configuration Compose avant redemarrage | `.github/workflows/deploy.yml` et `docker-compose.yml` | CD et verification locale |
+| `docker compose up --build -d --remove-orphans` | Reconstruire les images et relancer les services en arriere-plan | `.github/workflows/deploy.yml`, `Dockerfile`, `docker-compose.yml` | CD et lancement local |
+| `docker compose ps` | Verifier l'etat des conteneurs apres redemarrage | `.github/workflows/deploy.yml` | CD, apres relance |
+| `docker compose logs --tail=100` | Rendre les derniers logs visibles dans GitHub Actions | `.github/workflows/deploy.yml` | CD, apres relance |
+| `docker image prune -f` | Nettoyer les images non utilisees pour limiter l'occupation disque | `.github/workflows/deploy.yml` | CD, fin de deploiement |
 
 La strategie actuelle correspond a un deploiement simple adapte au scenario. Pour une production plus avancee, il serait pertinent d'ajouter un registre d'images, une strategie blue/green ou un rollback automatise.
 
@@ -868,7 +891,7 @@ Secrets de deploiement :
 - `DEPLOY_SSH_KEY`
 - `DEPLOY_PATH`
 
-Ces valeurs ne doivent jamais etre affichees dans les logs, commitees dans le depot ou partagees dans la documentation publique.
+Ces valeurs ne doivent jamais etre affichees dans les logs, commitees dans le depot ou partagees dans la documentation publique. Elles peuvent etre definies au niveau du depot ou, de preference, au niveau des environnements GitHub `staging` et `production` afin de separer les cibles.
 
 ### Annexe C - Extraits de workflows
 
@@ -898,6 +921,26 @@ Analyse SonarCloud :
     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 ```
 
+Declenchement du CD :
+
+```yaml
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+```
+
+Deploiement Docker Compose :
+
+```yaml
+docker compose config
+docker compose up --build -d --remove-orphans
+docker compose ps
+docker compose logs --tail=100
+```
+
 ### Annexe D - Checklist de validation avant deploiement
 
 - La branche `main` est a jour.
@@ -910,3 +953,21 @@ Analyse SonarCloud :
 - Le serveur cible dispose de Docker et Docker Compose.
 - Un point de retour stable est identifie.
 - Les logs sont verifies apres deploiement.
+
+### Annexe E - Cartographie des commandes d'automatisation
+
+| Commande ou action | Objectif | Definition | Moment d'execution |
+| --- | --- | --- | --- |
+| `./gradlew clean build` | Compiler le backend, executer les tests et produire le JAR | `back/build.gradle`, `.github/workflows/ci.yml` | CI sur push, pull request et execution manuelle |
+| `./gradlew test jacocoTestReport` | Generer les tests backend et la couverture Jacoco pour SonarCloud | `back/build.gradle`, `.github/workflows/ci.yml` | CI, job SonarCloud |
+| `npm ci` | Installer les dependances frontend de facon reproductible | `front/package-lock.json`, `.github/workflows/ci.yml` | CI, build Docker et local |
+| `npm run test:ci` | Lancer les tests Angular en mode headless avec couverture | `front/package.json`, `.github/workflows/ci.yml` | CI, controles periodiques et local |
+| `npm run build` | Construire l'application Angular | `front/package.json`, `.github/workflows/ci.yml` | CI et local |
+| `SonarSource/sonarqube-scan-action@v7` | Analyser qualite, securite, code smells et quality gate | `.github/workflows/ci.yml`, `sonar-project.properties` | CI apres generation des couvertures |
+| `docker build --target back` | Construire l'image backend | `Dockerfile`, `.github/workflows/ci.yml` | CI et local |
+| `docker build --target front` | Construire l'image frontend | `Dockerfile`, `.github/workflows/ci.yml` | CI et local |
+| `docker compose config` | Valider la configuration Compose | `docker-compose.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml` | CI, CD et local |
+| `docker compose up --build -d --remove-orphans` | Construire et demarrer les services applicatifs | `Dockerfile`, `docker-compose.yml`, `.github/workflows/deploy.yml` | CD et local |
+| `docker compose ps` | Verifier l'etat des services | `docker-compose.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml` | CI, CD et local |
+| `docker compose logs --tail=100` | Rendre les logs de demarrage exploitables | `.github/workflows/deploy.yml` | CD apres redemarrage |
+| `docker compose down --remove-orphans` | Arreter et nettoyer les services de validation | `.github/workflows/ci.yml` | CI et local |
