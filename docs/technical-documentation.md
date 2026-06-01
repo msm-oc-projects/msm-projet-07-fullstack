@@ -135,11 +135,11 @@ Le Dockerfile existant sert a produire des images reproductibles pour les deux p
 
 Les principes retenus sont :
 
-- construire le frontend Angular dans un stage Node.js, puis servir les fichiers statiques avec Caddy ;
+- construire le frontend Angular dans un stage Node.js, puis servir les fichiers statiques avec l'image officielle Caddy Alpine ;
 - construire le backend Spring Boot dans un stage Gradle/JDK, puis executer le JAR dans une image Java runtime plus legere ;
-- exposer uniquement les ports necessaires, soit `80` et `443` pour le frontend, et `8080` pour le backend ;
+- exposer uniquement les ports necessaires au lancement local, soit `80` pour le frontend et `8080` pour le backend ;
 - ne pas embarquer de secrets dans les images ;
-- conserver le stage `standalone` comme option historique, sans en faire la cible principale du deploiement.
+- executer le conteneur backend avec un utilisateur non-root.
 
 Le fichier `docker-compose.yml` a pour role d'orchestrer localement ou sur un serveur simple les services `front` et `back`. Il permet de reconstruire les images, demarrer les conteneurs, exposer les ports et verifier leur etat via des healthchecks. Il constitue donc le socle de validation de la conteneurisation dans la CI et le support de deploiement dans le scenario actuel.
 
@@ -304,16 +304,15 @@ Les stages principaux sont :
 - `front-build` : compilation Angular ;
 - `back-build` : compilation Spring Boot ;
 - `front` : image runtime frontend avec Caddy ;
-- `back` : image runtime backend avec Java 17 ;
-- `standalone` : image tout-en-un conservant la logique historique du projet.
+- `back` : image runtime backend avec Java 17.
 
-Le stage frontend utilise Node.js 20 Alpine. Il execute `npm ci`, puis `ng build --configuration production`. Les fichiers generes sont copies dans l'image finale `front`, servie par Caddy.
+Le stage frontend utilise l'image officielle `node:20-alpine`. Il copie d'abord `package.json` et `package-lock.json`, execute `npm ci`, puis copie le reste du code frontend avant `ng build --configuration production`. Cette organisation exploite mieux le cache Docker tout en garantissant une installation reproductible. Les fichiers generes sont copies dans l'image officielle `caddy:2-alpine`, servie depuis `/usr/share/caddy`.
 
-Le stage backend utilise l'image Gradle avec JDK 17 pour compiler l'application. Le JAR produit est ensuite copie dans une image Eclipse Temurin Java 17 JRE Alpine.
+Le stage backend utilise l'image officielle `gradle:8-jdk17-alpine` pour compiler l'application avec le wrapper Gradle du projet. Le JAR produit est ensuite copie dans l'image officielle `eclipse-temurin:17-jre-alpine`. L'image runtime backend cree un utilisateur `app` et execute l'application avec cet utilisateur afin d'eviter une execution applicative en root.
 
 Les ports exposes sont :
 
-- `80` et `443` pour le frontend ;
+- `80` pour le frontend ;
 - `8080` pour le backend.
 
 Une correction importante a ete apportee : l'image backend expose maintenant le port `8080`, coherent avec Spring Boot, au lieu d'un port frontend.
@@ -323,11 +322,13 @@ Une correction importante a ete apportee : l'image backend expose maintenant le 
 Les optimisations simples mises en place sont :
 
 - usage du multi-stage build ;
+- utilisation d'images officielles et minimales : `node:20-alpine`, `gradle:8-jdk17-alpine`, `caddy:2-alpine` et `eclipse-temurin:17-jre-alpine` ;
 - utilisation d'images runtime plus petites ;
 - installation des paquets Alpine avec `--no-cache` ;
 - exclusion des dossiers inutiles via `.dockerignore` ;
 - absence de secrets dans les images ;
-- conservation uniquement des artefacts necessaires a l'execution.
+- conservation uniquement des artefacts necessaires a l'execution ;
+- execution du backend avec un utilisateur non-root.
 
 Le fichier `.dockerignore` exclut notamment :
 
@@ -336,11 +337,15 @@ Le fichier `.dockerignore` exclut notamment :
 - `front/node_modules` ;
 - `front/dist` ;
 - `front/.angular` ;
+- `front/coverage` ;
 - `back/build` ;
 - `back/.gradle` ;
-- les fichiers `.deb`.
+- les fichiers `.deb` ;
+- les fichiers `.env` et `.env.*`, sauf `.env.example`.
 
 Le dossier `.github` est ignore par Docker uniquement. Il reste suivi par Git, car GitHub Actions en a besoin pour executer les workflows.
+
+Un scan d'image avec un outil dedie comme Twistlock, Trivy ou Docker Scout est recommande avant une mise en production. Dans le cadre actuel, la CI valide deja le build des images et Docker Compose, mais le scan de vulnerabilites d'images reste une amelioration a ajouter.
 
 ### 3.3 docker-compose.yml
 
@@ -349,7 +354,7 @@ Le fichier `docker-compose.yml` definit deux services :
 - `back` : service Spring Boot ;
 - `front` : service Caddy servant l'application Angular.
 
-Le service backend est construit depuis le target Docker `back` et expose le port `8080`. Le service frontend est construit depuis le target `front` et expose les ports `80` et `443`.
+Le service backend est construit depuis le target Docker `back` et expose le port `8080`. Le service frontend est construit depuis le target `front` et expose le port `80`. Le HTTPS pourra etre ajoute dans une configuration de production avec un nom de domaine et une politique TLS adaptee.
 
 Chaque service dispose d'un healthcheck simple. Ces controles permettent de verifier que les services repondent apres demarrage. En environnement de production, il serait preferable d'ajouter un endpoint Spring Boot Actuator dedie, par exemple `/actuator/health`.
 

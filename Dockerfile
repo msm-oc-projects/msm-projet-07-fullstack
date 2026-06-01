@@ -1,55 +1,45 @@
-FROM node:20-alpine as front-build
-
-COPY ./front /src
+FROM node:20-alpine AS front-build
 
 WORKDIR /src
 
-RUN npm ci \
-    && npx ng build --configuration production
+COPY front/package*.json ./
+RUN npm ci
 
-FROM gradle:jdk17 as back-build
+COPY front/ ./
+RUN npx ng build --configuration production
 
-COPY ./back /src
+FROM gradle:8-jdk17-alpine AS back-build
 
 WORKDIR /src
 
-RUN ./gradlew build
+COPY back/gradle ./gradle
+COPY back/gradlew back/build.gradle back/settings.gradle ./
+RUN sed -i 's/\r$//' ./gradlew \
+    && chmod +x ./gradlew
 
-FROM alpine:3.19 as front
+COPY back/src ./src
+RUN ./gradlew clean build --no-daemon
 
-COPY --from=front-build /src/dist/microcrm/browser /app/front
-COPY misc/docker/Caddyfile /app/Caddyfile
+FROM caddy:2-alpine AS front
 
-RUN apk add --no-cache caddy
-
-WORKDIR /app
+COPY misc/docker/Caddyfile /etc/caddy/Caddyfile
+COPY --from=front-build /src/dist/microcrm/browser /usr/share/caddy
 
 EXPOSE 80
-EXPOSE 443
 
-CMD ["/usr/sbin/caddy", "run"]
+FROM eclipse-temurin:17-jre-alpine AS back
 
-FROM eclipse-temurin:17-jre-alpine as back
+RUN apk add --no-cache wget \
+    && addgroup -S app \
+    && adduser -S app -G app
 
-COPY --from=back-build /src/build/libs/microcrm-0.0.1-SNAPSHOT.jar /app/back/microcrm-0.0.1-SNAPSHOT.jar
-
-RUN apk add --no-cache wget
+COPY --from=back-build --chown=app:app /src/build/libs/microcrm-0.0.1-SNAPSHOT.jar /app/back/microcrm-0.0.1-SNAPSHOT.jar
 
 WORKDIR /app
 
 EXPOSE 8080
 
+USER app
+
 CMD ["java", "-jar", "/app/back/microcrm-0.0.1-SNAPSHOT.jar"]
-
-FROM alpine:3.19 as standalone
-
-COPY --from=front / /
-COPY --from=back / /
-COPY misc/docker/supervisor.ini /app/supervisor.ini
-
-RUN apk add --no-cache supervisor
-
-WORKDIR /app
-
-CMD ["/usr/bin/supervisord", "-c", "/app/supervisor.ini"]
 
