@@ -46,6 +46,7 @@ Les technologies utilisees sont :
 - Docker Compose ;
 - GitHub Actions ;
 - SonarCloud ;
+- Elastic Stack locale : Elasticsearch, Logstash, Kibana ;
 - Caddy pour servir le frontend en production.
 
 Le projet est organise en monorepo. Le backend est situe dans `back/`, le frontend dans `front/`, et les elements d'industrialisation sont situes a la racine du depot ou dans `.github/workflows/`.
@@ -557,6 +558,30 @@ Les objectifs sont :
 - eviter de deployer une version non testee ;
 - fournir des rapports exploitables pour la maintenance.
 
+### 4.6 Resultats observes et couverture
+
+Les derniers tests executes localement donnent l'etat suivant :
+
+| Perimetre | Outil | Tests executes | Resultat | Couverture observee |
+| --- | --- | ---: | --- | --- |
+| Backend | JUnit / Spring Boot Test / Jacoco | 2 | 2 succes, 0 echec | Lignes : 60,00 % ; instructions : 65,88 % ; branches : 25,00 % |
+| Frontend | Karma / Jasmine / LCOV | 8 | 8 succes, 0 echec | Lignes : 30,77 % ; statements : 33,08 % ; branches : 9,52 % ; fonctions : 28,95 % |
+
+Analyse :
+
+- les tests existants valident le demarrage Spring Boot, un acces repository et les composants Angular couverts par les specs actuelles ;
+- la couverture backend est correcte pour une base initiale mais les branches restent peu couvertes ;
+- la couverture frontend est faible, notamment sur les services et les branches conditionnelles ;
+- le risque principal est une regression fonctionnelle non detectee sur les parcours CRUD et les appels API.
+
+Objectifs de progression proposes :
+
+- atteindre au moins 70 % de couverture lignes backend ;
+- atteindre au moins 60 % de couverture lignes frontend dans une premiere iteration ;
+- ajouter des tests sur les services Angular et les cas d'erreur HTTP ;
+- ajouter des tests backend sur les endpoints REST et les cas de validation ;
+- conserver les rapports Jacoco et LCOV comme artefacts CI pour faciliter l'analyse par l'equipe.
+
 ## 5. Plan de securite
 
 ### 5.1 Resultats SonarCloud
@@ -575,6 +600,28 @@ Les indicateurs a suivre sont :
 - quality gate.
 
 Au moment de la redaction, les resultats definitifs dependent de l'execution dans SonarCloud apres configuration du secret `SONAR_TOKEN` et creation du projet dans l'organisation cible. Les captures ou valeurs observees devront etre ajoutees en annexe apres la premiere execution reussie.
+
+L'analyse SonarCloud s'appuie sur les regles Java et TypeScript de SonarSource. Elle doit notamment surveiller :
+
+- les injections, failles XSS et usages dangereux d'API ;
+- les erreurs de nullite, exceptions non maitrisees et bugs probables ;
+- les duplications et fonctions trop complexes ;
+- les code smells qui augmentent la dette technique ;
+- les fichiers non couverts par les tests ;
+- les regressions introduites dans le code modifie.
+
+Dans l'etat actuel, l'analyse locale indique que les rapports attendus par SonarCloud sont produits aux emplacements suivants :
+
+- backend : `back/build/reports/jacoco/test/jacocoTestReport.xml` ;
+- frontend : `front/coverage/microcrm/lcov.info`.
+
+Le quality gate doit etre considere comme bloquant avant fusion dans `main` et avant deploiement production. En cas d'alerte SonarCloud, la priorite de traitement est :
+
+1. vulnerabilites et security hotspots critiques ;
+2. bugs bloquants ;
+3. baisse de couverture sur le code nouveau ;
+4. code smells majeurs ;
+5. dette technique mineure planifiable.
 
 ### 5.2 Analyse des risques applicatifs
 
@@ -666,6 +713,17 @@ Valeur cible initiale : inferieure a 15 % apres stabilisation.
 
 Ces metriques devront etre calculees apres plusieurs cycles de livraison. Au demarrage, l'objectif principal est de rendre les donnees mesurables.
 
+Analyse de maturite initiale :
+
+| Metrique DORA | Etat initial | Interpretation | Action recommandee |
+| --- | --- | --- | --- |
+| Lead Time for Changes | Non mesure avant premiers deploiements reels | La chaine CI/CD existe, mais l'historique de livraison n'est pas encore suffisant | Relever l'heure de merge, l'heure de fin CI et l'heure de deploiement |
+| Deployment Frequency | Staging automatisable apres CI verte ; production manuelle | Niveau adapte au projet, avec controle humain en production | Suivre le nombre de workflows `deploy.yml` reussis par semaine |
+| MTTR | Objectif initial inferieur a 4 heures | La restauration reste manuelle mais documentee | Tester la procedure de rollback a chaque release majeure |
+| Change Failure Rate | Non mesure | Les echecs de deploiement seront visibles dans GitHub Actions | Taguer les incidents et calculer le ratio mensuellement |
+
+La maturite DORA actuelle est donc intermediaire : la mesure est possible, mais les indicateurs doivent etre alimentes par plusieurs cycles reels avant d'etre interpretes comme des KPI de performance.
+
 ### 6.2 KPI personnalises
 
 Les KPI proposes sont :
@@ -684,6 +742,25 @@ Les KPI proposes sont :
 
 Ces KPI sont consultables dans GitHub Actions, SonarCloud et les logs de deploiement. Pour un environnement plus mature, ils pourraient etre exportes vers un outil de monitoring dedie.
 
+Les KPI applicatifs proposes sont :
+
+- nombre de requetes HTTP backend par periode ;
+- taux de reponses en erreur ;
+- volume de logs par service ;
+- nombre de redemarrages de conteneurs ;
+- pics d'activite par heure ;
+- temps de demarrage des services apres deploiement ;
+- disponibilite observee via healthchecks.
+
+Les KPI de qualite proposes sont :
+
+- couverture lignes backend et frontend ;
+- evolution du nombre de tests ;
+- nombre de vulnerabilites SonarCloud ;
+- nombre de security hotspots ;
+- dette technique SonarCloud ;
+- evolution des vulnerabilites npm de niveau eleve.
+
 ### 6.3 Analyse synthetique du monitoring
 
 Dans la solution actuelle, le monitoring est principalement base sur les retours GitHub Actions et SonarCloud. Les points forts sont la simplicite, la lisibilite et la disponibilite immediate des logs.
@@ -700,9 +777,44 @@ Les ameliorations recommandees sont :
 
 - ajouter Actuator ;
 - exposer un endpoint `/actuator/health` ;
-- ajouter un outil de logs centralises ;
+- utiliser la stack ELK locale fournie par `docker-compose.monitoring.yml` pour centraliser et visualiser les logs ;
 - creer un dashboard des workflows GitHub Actions ;
 - ajouter une notification en cas d'echec de workflow.
+
+### 6.4 Stack ELK locale
+
+Une stack ELK locale est fournie dans `docker-compose.monitoring.yml`. Elle reste separee du `docker-compose.yml` applicatif afin de ne pas alourdir le lancement standard de l'application.
+
+Services prevus :
+
+- `elasticsearch` : stockage et indexation des logs ;
+- `logstash` : ingestion des logs via TCP JSON sur le port `5000` ou Beats sur le port `5044` ;
+- `kibana` : visualisation des logs et creation de dashboards sur le port `5601`.
+
+Commande de lancement :
+
+```bash
+docker compose -f docker-compose.monitoring.yml up -d
+```
+
+Commande d'arret :
+
+```bash
+docker compose -f docker-compose.monitoring.yml down
+```
+
+Le pipeline Logstash est defini dans `monitoring/logstash/pipeline/logstash.conf`. Il ajoute les champs `application=orion-microcrm` et `environment=local`, puis indexe les logs dans Elasticsearch avec le format `orion-microcrm-logs-YYYY.MM.dd`.
+
+Indicateurs a construire dans Kibana :
+
+- volumetrie de logs par service ;
+- repartition des niveaux de logs ;
+- pics d'activite par periode ;
+- erreurs backend recurrentes ;
+- correlation entre heure de deploiement et erreurs applicatives ;
+- suivi des redemarrages ou indisponibilites observees.
+
+Cette stack est adaptee au contexte local et pedagogique. Pour un environnement de production, il faudrait ajouter une authentification, TLS, une politique de retention des index et une strategie de stockage adaptee.
 
 ## 7. Plan de sauvegarde des donnees
 
@@ -718,6 +830,13 @@ Dans le scenario actuel, l'application utilise une base HSQLDB embarquee adaptee
 - documentation d'exploitation.
 
 Le code source est sauvegarde par le depot GitHub. Les secrets sont sauvegardes par la plateforme GitHub Secrets, mais ils doivent aussi etre conserves dans un coffre-fort d'entreprise.
+
+Objectifs initiaux :
+
+- RPO cible : 24 heures pour les donnees applicatives si une base externe est ajoutee ;
+- RTO cible : 4 heures pour restaurer un service deploye ;
+- conservation minimale d'un tag Git stable pour chaque release ;
+- verification de restauration au moins une fois par trimestre.
 
 ### 7.2 Procedure de sauvegarde
 
@@ -735,6 +854,14 @@ Politique de retention proposee :
 - 7 sauvegardes quotidiennes ;
 - 4 sauvegardes hebdomadaires ;
 - 12 sauvegardes mensuelles.
+
+La sauvegarde doit etre controlee par :
+
+- verification de la presence du fichier ;
+- verification de la taille non nulle ;
+- test de decompression ;
+- restauration sur un environnement de test ;
+- journalisation du resultat de la sauvegarde.
 
 Exemple de procedure generique :
 
@@ -777,6 +904,8 @@ Limitations actuelles :
 - pas de procedure de restauration testee automatiquement ;
 - pas de monitoring avance pour confirmer le retour a la normale.
 
+Action prioritaire : effectuer un test de restauration manuel apres la premiere release taguee afin de valider que la documentation est applicable par un autre membre de l'equipe.
+
 ## 8. Plan de mise a jour
 
 ### 8.1 Mise a jour de l'application
@@ -805,6 +934,13 @@ Avant chaque mise a jour importante, il faut :
 5. analyser les resultats CI et SonarCloud ;
 6. fusionner seulement si le pipeline est vert.
 
+Frequence recommandee :
+
+- revue hebdomadaire des alertes npm et SonarCloud ;
+- revue mensuelle des dependances applicatives ;
+- revue trimestrielle des versions majeures Angular, Spring Boot et Gradle ;
+- traitement immediat des correctifs de securite critiques.
+
 ### 8.2 Mise a jour Docker
 
 Les images de base doivent etre revues regulierement :
@@ -822,6 +958,8 @@ Les mises a jour Docker doivent etre validees par :
 - verification des logs ;
 - execution du pipeline CI.
 
+Les images doivent etre revues au moins une fois par mois. Les images obsoletes ou non maintenues doivent etre remplacees par des images officielles maintenues. Un scan d'image doit etre ajoute avant generalisation du deploiement production.
+
 ### 8.3 Mise a jour du pipeline CI/CD
 
 Les actions GitHub doivent etre maintenues :
@@ -834,6 +972,14 @@ Les actions GitHub doivent etre maintenues :
 - action SonarCloud.
 
 La frequence recommandee est une revue mensuelle ou trimestrielle. Les changements doivent etre testes dans une pull request, car une mauvaise mise a jour du pipeline peut bloquer toute l'equipe.
+
+Pour les workflows GitHub Actions, les mises a jour doivent respecter les principes suivants :
+
+- preferer les actions officielles ou maintenues ;
+- conserver des versions majeures explicites ;
+- verifier les permissions demandees par chaque action ;
+- eviter les tokens personnels si `GITHUB_TOKEN` suffit ;
+- documenter toute nouvelle variable ou tout nouveau secret.
 
 ### 8.4 Bonnes pratiques de maintenance
 
@@ -908,6 +1054,15 @@ docker compose up --build -d
 docker compose ps
 docker compose logs -f
 docker compose down
+```
+
+Stack ELK locale :
+
+```bash
+docker compose -f docker-compose.monitoring.yml config
+docker compose -f docker-compose.monitoring.yml up -d
+docker compose -f docker-compose.monitoring.yml logs -f
+docker compose -f docker-compose.monitoring.yml down
 ```
 
 ### Annexe B - Secrets GitHub
@@ -1022,6 +1177,7 @@ Creation de la GitHub Release :
 | `docker compose ps` | Verifier l'etat des services | `docker-compose.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml` | CI, CD et local |
 | `docker compose logs --tail=100` | Rendre les logs de demarrage exploitables | `.github/workflows/deploy.yml` | CD apres redemarrage |
 | `docker compose down --remove-orphans` | Arreter et nettoyer les services de validation | `.github/workflows/ci.yml` | CI et local |
+| `docker compose -f docker-compose.monitoring.yml up -d` | Lancer Elasticsearch, Logstash et Kibana en local | `docker-compose.monitoring.yml`, `monitoring/logstash/pipeline/logstash.conf` | Monitoring local |
 | `tar -czf orion-microcrm-front-<version>.tar.gz` | Packager le build Angular sans dependances locales ni secrets | `.github/workflows/release.yml` | Release sur tag SemVer |
 | `softprops/action-gh-release@v3` | Creer la GitHub Release et joindre les artefacts | `.github/workflows/release.yml` | Release sur tag SemVer |
 
