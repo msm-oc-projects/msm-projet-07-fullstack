@@ -60,6 +60,100 @@ Le pipeline mis en place repose sur GitHub Actions. Il est decoupe en trois work
 
 Le pipeline CI execute les tests backend, les tests frontend, le build des deux parties, l'analyse SonarCloud, le build des images Docker et une validation de l'orchestration Docker Compose. Le deploiement reste manuel afin de conserver un controle humain avant modification d'un environnement cible.
 
+### 1.5 Plans prealables a l'automatisation
+
+Avant toute configuration technique du pipeline, les regles suivantes cadrent l'automatisation attendue. Elles definissent les controles a executer, leur moment d'execution et l'objectif recherche. La mise en oeuvre GitHub Actions, Docker et SonarCloud doit respecter ces principes afin d'eviter une automatisation trop large, inutile ou deconnectee du contexte du projet.
+
+#### 1.5.1 Plan de testing periodique
+
+Le projet etant compose d'un backend Spring Boot et d'un frontend Angular, les tests automatises doivent couvrir les deux perimetres.
+
+Pour le backend, les controles attendus sont :
+
+- tests unitaires Java ;
+- tests d'integration Spring Boot lorsque le comportement applicatif le justifie ;
+- tests repository pour verifier les acces aux donnees ;
+- generation d'un rapport de couverture Jacoco.
+
+Pour le frontend, les controles attendus sont :
+
+- tests unitaires Angular ;
+- execution Karma/Jasmine en navigateur headless ;
+- generation d'un rapport de couverture LCOV ;
+- build Angular afin de verifier que l'application reste compilable.
+
+Les tests doivent etre executes automatiquement aux moments suivants :
+
+| Moment | Tests et controles | Objectif |
+| --- | --- | --- |
+| Pull request vers `main` | Tests backend, tests frontend, build frontend, analyse SonarCloud, validation Docker | Bloquer l'integration d'un changement regressif ou de qualite insuffisante |
+| Push vers `main` | Meme niveau de controle que sur pull request | Verifier que la branche principale reste stable et deployable |
+| Controle periodique hebdomadaire | Tests backend, tests frontend, audit npm, validation Docker Compose | Detecter les regressions liees aux dependances, a l'environnement ou a une derive non visible au quotidien |
+| Avant deploiement | Verification du dernier pipeline vert, des resultats SonarCloud et de la validation Docker Compose | Eviter le deploiement d'une version non testee ou non conforme |
+
+Les objectifs associes aux tests sont :
+
+- validation fonctionnelle des principales regles applicatives ;
+- non-regression lors des evolutions ;
+- verification de la qualite technique par la compilation, les tests et la couverture ;
+- detection rapide des erreurs avant fusion dans `main` ;
+- production de rapports exploitables pour comprendre les echecs.
+
+Cette strategie reste volontairement adaptee au contexte du projet. Elle ne prevoit pas encore de tests end-to-end complets, car l'objectif prioritaire est d'abord de securiser les builds front/back, la qualite du code et la conteneurisation. Les tests end-to-end pourront etre ajoutes dans une iteration ulterieure.
+
+#### 1.5.2 Plan de securite
+
+SonarCloud joue le role de controle qualite et securite automatise. Son analyse doit etre executee dans la CI apres generation des rapports de couverture afin de consolider les resultats Java, TypeScript, Jacoco et LCOV.
+
+Les problemes surveilles sont :
+
+- vulnerabilites detectees dans le code ;
+- bugs susceptibles de provoquer un comportement incorrect ;
+- code smells et dette technique ;
+- duplications ;
+- complexite excessive ;
+- couverture de tests insuffisante ;
+- non-respect du quality gate.
+
+La CI doit egalement appliquer les bonnes pratiques suivantes :
+
+- stocker les secrets exclusivement dans GitHub Secrets ;
+- ne jamais afficher les secrets dans les logs ;
+- utiliser des permissions minimales dans les workflows ;
+- eviter l'execution de l'analyse SonarCloud pour Dependabot si les secrets ne sont pas disponibles ;
+- installer les dependances frontend avec `npm ci` pour garantir une installation reproductible ;
+- utiliser le wrapper Gradle du projet pour eviter une difference de version entre environnements ;
+- executer un audit npm periodique avec un seuil bloquant sur les vulnerabilites elevees ;
+- maintenir les actions GitHub et les images Docker de base ;
+- exclure des images Docker les dossiers inutiles et les fichiers sensibles via `.dockerignore`.
+
+Les vulnerabilites critiques ou elevees doivent etre traitees avant fusion ou avant deploiement. Les alertes moins critiques peuvent etre planifiees, mais elles doivent rester visibles dans SonarCloud ou dans les rapports de CI.
+
+#### 1.5.3 Principes de conteneurisation et de deploiement
+
+Le Dockerfile existant sert a produire des images reproductibles pour les deux parties de l'application. Il est multi-stage afin de separer les etapes de compilation des images d'execution.
+
+Les principes retenus sont :
+
+- construire le frontend Angular dans un stage Node.js, puis servir les fichiers statiques avec Caddy ;
+- construire le backend Spring Boot dans un stage Gradle/JDK, puis executer le JAR dans une image Java runtime plus legere ;
+- exposer uniquement les ports necessaires, soit `80` et `443` pour le frontend, et `8080` pour le backend ;
+- ne pas embarquer de secrets dans les images ;
+- conserver le stage `standalone` comme option historique, sans en faire la cible principale du deploiement.
+
+Le fichier `docker-compose.yml` a pour role d'orchestrer localement ou sur un serveur simple les services `front` et `back`. Il permet de reconstruire les images, demarrer les conteneurs, exposer les ports et verifier leur etat via des healthchecks. Il constitue donc le socle de validation de la conteneurisation dans la CI et le support de deploiement dans le scenario actuel.
+
+La strategie de deploiement envisagee est progressive :
+
+- dans un premier temps, deploiement manuel declenche par `workflow_dispatch` afin de conserver une validation humaine ;
+- connexion SSH au serveur cible ;
+- recuperation de la derniere version validee de `main` ;
+- reconstruction des images sur le serveur ;
+- redemarrage des services avec Docker Compose ;
+- verification des conteneurs et des logs apres deploiement.
+
+A court terme, la publication d'images dans un registre Docker peut etre ajoutee pour eviter de reconstruire sur le serveur cible. Dans ce modele, la CI publierait des images versionnees apres validation, puis le deploiement ne ferait que tirer les images approuvees et relancer Compose. Pour une production plus mature, il faudrait aussi prevoir une strategie de rollback, une gestion d'environnements separes et un scan des images.
+
 ## 2. Etapes de mise en oeuvre du pipeline CI/CD
 
 ### 2.1 Structure du pipeline
