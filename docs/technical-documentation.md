@@ -785,13 +785,15 @@ Les ameliorations recommandees sont :
 
 ### 6.4 Stack ELK locale
 
-Une stack ELK locale est fournie dans `docker-compose.monitoring.yml`. Elle reste separee du `docker-compose.yml` applicatif afin de ne pas alourdir le lancement standard de l'application.
+Une stack ELK locale est fournie dans `docker-compose.monitoring.yml`. Elle reste separee du `docker-compose.yml` applicatif afin de ne pas alourdir le lancement standard de l'application et de ne pas executer ELK dans la CI/CD.
 
 Services prevus :
 
 - `elasticsearch` : stockage et indexation des logs ;
-- `logstash` : ingestion des logs via TCP JSON sur le port `5000` ou Beats sur le port `5044` ;
+- `logstash` : ingestion des logs Docker via GELF sur le port UDP `12201`, TCP JSON sur le port `5000` ou Beats sur le port `5044` ;
 - `kibana` : visualisation des logs et creation de dashboards sur le port `5601`.
+
+La version Elastic retenue est `8.17.10`, une version 8.x stable et adaptee au besoin local. Elasticsearch est configure en mode `single-node`, sans securite activee, avec `ES_JAVA_OPTS=-Xms1g -Xmx1g`. Cette configuration reste volontairement locale : elle facilite les tests sur poste de developpement mais ne doit pas etre reprise telle quelle en production.
 
 Commande de lancement :
 
@@ -805,7 +807,21 @@ Commande d'arret :
 docker compose -f docker-compose.monitoring.yml down
 ```
 
-Le pipeline Logstash est defini dans `monitoring/logstash/pipeline/logstash.conf`. Il ajoute les champs `application=orion-microcrm` et `environment=local`, puis indexe les logs dans Elasticsearch avec le format `orion-microcrm-logs-YYYY.MM.dd`.
+Ordre de lancement recommande :
+
+1. demarrer ELK avec `docker compose -f docker-compose.monitoring.yml up -d` ;
+2. demarrer l'application avec `docker compose up --build -d` ;
+3. generer de l'activite sur `http://localhost` et `http://localhost:8080` ;
+4. ouvrir Kibana sur `http://localhost:5601` ;
+5. importer le dashboard `monitoring/kibana/orion-microcrm-dashboard.ndjson`.
+
+Le pipeline Logstash est defini dans `monitoring/logstash/pipeline/logstash.conf`. Il ajoute les champs `application=orion-microcrm` et `environment=local`, enrichit les logs avec le service detecte (`front` ou `back`), extrait les messages JSON lorsque c'est possible, puis indexe les logs dans Elasticsearch avec le format `orion-microcrm-logs-YYYY.MM.dd`.
+
+Les logs applicatifs sont centralises de la maniere suivante :
+
+- backend Spring Boot : logs JSON produits par `back/src/main/resources/logback-spring.xml` avec `logstash-logback-encoder` ;
+- frontend Caddy : logs d'acces JSON produits par `misc/docker/Caddyfile` ;
+- collecte Docker : driver `gelf` configure dans `docker-compose.yml` pour les services `front` et `back`, vers `udp://localhost:12201`.
 
 Indicateurs a construire dans Kibana :
 
@@ -816,7 +832,9 @@ Indicateurs a construire dans Kibana :
 - correlation entre heure de deploiement et erreurs applicatives ;
 - suivi des redemarrages ou indisponibilites observees.
 
-Cette stack est adaptee au contexte local et pedagogique. Pour un environnement de production, il faudrait ajouter une authentification, TLS, une politique de retention des index et une strategie de stockage adaptee.
+Le dashboard fourni contient une premiere visualisation du volume de logs par service et une visualisation des erreurs applicatives. Si l'import automatique n'est pas utilise, les visualisations peuvent etre creees manuellement dans Kibana avec le data view `orion-microcrm-logs-*` et le champ temporel `@timestamp`.
+
+Cette stack est adaptee au contexte local et pedagogique. Pour un environnement de production, il faudrait ajouter une authentification, TLS, une politique de retention des index et une strategie de stockage adaptee. Il faut prevoir environ 4 Go de RAM disponibles pour faire tourner confortablement l'application et ELK en parallele.
 
 ## 7. Plan de sauvegarde des donnees
 
@@ -1067,6 +1085,14 @@ docker compose -f docker-compose.monitoring.yml logs -f
 docker compose -f docker-compose.monitoring.yml down
 ```
 
+Import du dashboard Kibana :
+
+```bash
+curl -X POST "http://localhost:5601/api/saved_objects/_import?overwrite=true" \
+  -H "kbn-xsrf: true" \
+  --form file=@monitoring/kibana/orion-microcrm-dashboard.ndjson
+```
+
 ### Annexe B - Secrets GitHub
 
 Secrets SonarCloud :
@@ -1181,6 +1207,7 @@ Creation de la GitHub Release :
 | `docker compose logs --tail=100` | Rendre les logs de demarrage exploitables | `.github/workflows/deploy.yml` | CD apres redemarrage |
 | `docker compose down --remove-orphans` | Arreter et nettoyer les services de validation | `.github/workflows/ci.yml` | CI et local |
 | `docker compose -f docker-compose.monitoring.yml up -d` | Lancer Elasticsearch, Logstash et Kibana en local | `docker-compose.monitoring.yml`, `monitoring/logstash/pipeline/logstash.conf` | Monitoring local |
+| `curl ... /api/saved_objects/_import` | Importer le dashboard Kibana local | `monitoring/kibana/orion-microcrm-dashboard.ndjson` | Monitoring local |
 | `tar -czf orion-microcrm-front-<version>.tar.gz` | Packager le build Angular sans dependances locales ni secrets | `.github/workflows/release.yml` | Release sur tag SemVer |
 | `softprops/action-gh-release@v3` | Creer la GitHub Release et joindre les artefacts | `.github/workflows/release.yml` | Release sur tag SemVer |
 
