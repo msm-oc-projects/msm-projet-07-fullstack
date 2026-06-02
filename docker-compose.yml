@@ -8,11 +8,6 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://host.docker.internal:12201"
-        tag: "orion-microcrm-back"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -32,11 +27,6 @@ services:
       back:
         condition: service_started
     restart: unless-stopped
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://host.docker.internal:12201"
-        tag: "orion-microcrm-front"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
       interval: 30s

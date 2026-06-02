@@ -725,7 +725,7 @@ Les KPI operationnels completent les metriques DORA avec des indicateurs plus di
 | Volume de logs par service | Nombre de logs groupes par `service.keyword` | Kibana | Observation locale initiale : `back=33`, `front=17`, `manual=1` | Verifier que les deux services produisent des logs centralises |
 | Disponibilite locale | Etat des healthchecks Docker | Docker Compose | `back` et `front` healthy lors du test local | Confirmer que les services redemarrent correctement |
 
-Le log `manual=1` correspond a un evenement de test envoye directement a Logstash pour verifier la chaine ELK. Les valeurs `back=33` et `front=17` confirment que les logs applicatifs sont bien centralises apres correction de l'adresse GELF vers `udp://host.docker.internal:12201`.
+Le log `manual=1` correspond a un evenement de test envoye directement a Logstash pour verifier la chaine ELK. Les valeurs `back=33` et `front=17` confirment que les logs applicatifs sont bien centralises lorsque l'application est lancee avec la surcharge `docker-compose.logging.yml`.
 
 ### 6.3 Analyse synthetique du monitoring
 
@@ -788,7 +788,7 @@ docker compose -f docker-compose-elk.yml down
 Ordre de lancement recommande :
 
 1. demarrer ELK avec `docker compose -f docker-compose-elk.yml up -d` ;
-2. demarrer l'application avec `docker compose up --build -d` ;
+2. demarrer l'application avec `docker compose -f docker-compose.yml -f docker-compose.logging.yml up --build -d` ;
 3. generer de l'activite sur `http://localhost` et `http://localhost:8080` ;
 4. ouvrir Kibana sur `http://localhost:5601` ;
 5. ouvrir le dashboard importe automatiquement `Orion MicroCRM - Logs locaux`.
@@ -799,7 +799,9 @@ Les logs applicatifs sont centralises de la maniere suivante :
 
 - backend Spring Boot : logs JSON produits par `back/src/main/resources/logback-spring.xml` avec `logstash-logback-encoder` ;
 - frontend Caddy : logs d'acces JSON produits par `misc/docker/Caddyfile` ;
-- collecte Docker : driver `gelf` configure dans `docker-compose.yml` pour les services `front` et `back`, vers `udp://host.docker.internal:12201`.
+- collecte Docker : driver `gelf` configure dans `docker-compose.logging.yml` pour les services `front` et `back`, vers `${GELF_ADDRESS:-udp://localhost:12201}`.
+
+Le fichier `docker-compose.yml` applicatif ne contient pas directement le driver GELF. Cette separation evite de lancer ELK dans la CI/CD et preserve le workflow GitHub Actions, qui valide uniquement l'application. La surcharge `docker-compose.logging.yml` est reservee au monitoring local.
 
 Indicateurs a construire dans Kibana :
 

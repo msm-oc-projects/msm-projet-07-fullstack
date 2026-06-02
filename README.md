@@ -128,7 +128,7 @@ L'application Docker envoie les logs du backend Spring Boot et du frontend vers 
 
 ```bash
 docker compose -f docker-compose-elk.yml up -d
-docker compose up --build -d
+docker compose -f docker-compose.yml -f docker-compose.logging.yml up --build -d
 ```
 
 Le backend utilise `back/src/main/resources/logback-spring.xml` pour produire des logs JSON. Logstash centralise ensuite les evenements dans l'index `orion-microcrm-logs-*` avec les champs `application`, `environment`, `service` et `log_level`.

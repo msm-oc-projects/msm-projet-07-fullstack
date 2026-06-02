@@ -1,0 +1,14 @@
+services:
+  back:
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "${GELF_ADDRESS:-udp://localhost:12201}"
+        tag: "orion-microcrm-back"
+
+  front:
+    logging:
+      driver: gelf
+      options:
+        gelf-address: "${GELF_ADDRESS:-udp://localhost:12201}"
+        tag: "orion-microcrm-front"
