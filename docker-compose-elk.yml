@@ -55,10 +55,10 @@ services:
       - elk
     command: >
       sh -c '
-        until curl -fsS http://kibana:5601/api/status > /dev/null; do
+        until curl -fsS http://kibana:5601/api/status > /dev/null 2>&1; do
           sleep 5;
         done;
-        curl -fsS -X POST "http://kibana:5601/api/saved_objects/_import?overwrite=true" -H "kbn-xsrf: true" --form file=@/kibana/orion-microcrm-dashboard.ndjson
+        curl -fsS --retry 30 --retry-all-errors --retry-delay 5 -X POST "http://kibana:5601/api/saved_objects/_import?overwrite=true" -H "kbn-xsrf: true" --form file=@/kibana/orion-microcrm-dashboard.ndjson
       '
     restart: "no"
 
