@@ -11,7 +11,6 @@ L'ancien README fourni avec le projet est conserve dans `README.original.md`.
 - `Dockerfile` : images multi-stage pour le frontend, le backend et le mode standalone.
 - `docker-compose.yml` : orchestration locale des services `front` et `back`.
 - `.github/workflows/` : workflows GitHub Actions pour CI, controles periodiques et deploiement.
-- `docs/technical-documentation.md` : documentation technique du pipeline, du deploiement, du testing periodique et du plan de securite.
 
 ## Prerequis
 
@@ -223,10 +222,3 @@ L'application utilise actuellement une base HSQLDB embarquee adaptee a la demons
 - stockage chiffre hors serveur applicatif ;
 - definition d'un RPO/RTO cible dans la documentation d'exploitation.
 
-## Documentation technique
-
-La documentation detaillee du pipeline, du deploiement, du plan de securite et du plan de testing periodique se trouve dans :
-
-```text
-docs/technical-documentation.md
-```
