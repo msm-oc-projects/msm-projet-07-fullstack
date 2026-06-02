@@ -695,81 +695,59 @@ Actions a long terme :
 
 ### 6.1 Metriques DORA
 
-Les metriques DORA permettent d'evaluer la performance de livraison logicielle.
+Les metriques DORA permettent d'evaluer la performance de livraison logicielle. Dans le contexte Orion MicroCRM, elles sont mesurees a partir de deux sources distinctes :
 
-**Lead Time for Changes** : temps entre un commit et son deploiement.  
-Methode de calcul : date de deploiement moins date du commit fusionne.  
-Valeur observee initiale : non disponible avant executions reelles du workflow de deploiement.
+- GitHub Actions pour les donnees de pipeline, de build, de test et de deploiement ;
+- ELK pour les donnees applicatives observees apres lancement local.
 
-**Deployment Frequency** : frequence des deploiements.  
-Methode de calcul : nombre de workflows `deploy.yml` reussis par semaine ou par mois.  
-Valeur cible initiale : deploiement a la demande, au minimum a chaque release validee.
+Les valeurs ci-dessous sont provisoires. Elles constituent une base de suivi a consolider apres au moins trois executions completes de CI/CD et plusieurs sessions de monitoring applicatif.
 
-**MTTR** : temps moyen de restauration apres incident.  
-Methode de calcul : heure de resolution moins heure de detection.  
-Valeur cible initiale : inferieure a 4 heures pour le scenario documente.
+| Metrique DORA | Methode de calcul | Source | Valeur initiale | Interpretation |
+| --- | --- | --- | --- | --- |
+| Lead Time for Changes | Heure de fin du deploiement moins heure du commit ou du merge dans `main` | GitHub Actions, historique Git | Non mesure avant historique de deploiements reels | Le pipeline CI/CD est pret a produire la mesure, mais il faut historiser les executions de `deploy.yml` |
+| Deployment Frequency | Nombre de workflows `deploy.yml` reussis par semaine ou par mois | GitHub Actions | Staging automatisable apres CI verte ; production manuelle | Le modele est adapte au projet : livraison possible apres CI verte, avec validation humaine pour la production |
+| MTTR | Heure de restauration moins heure de detection de l'incident | Logs ELK, GitHub Actions, journal d'incident | Objectif initial : moins de 4 heures | La procedure de restauration est documentee, mais le temps reel doit etre mesure lors d'un exercice de rollback |
+| Change Failure Rate | Nombre de deploiements avec incident, rollback ou correctif urgent divise par le nombre total de deploiements | GitHub Actions, tickets incidents, ELK | Non mesure ; cible initiale : moins de 15 % | L'indicateur deviendra exploitable lorsque chaque incident sera lie a un deploiement identifiable |
 
-**Change Failure Rate** : pourcentage de deploiements provoquant un incident.  
-Methode de calcul : deploiements en echec ou rollbackes divises par le nombre total de deploiements.  
-Valeur cible initiale : inferieure a 15 % apres stabilisation.
-
-Ces metriques devront etre calculees apres plusieurs cycles de livraison. Au demarrage, l'objectif principal est de rendre les donnees mesurables.
-
-Analyse de maturite initiale :
-
-| Metrique DORA | Etat initial | Interpretation | Action recommandee |
-| --- | --- | --- | --- |
-| Lead Time for Changes | Non mesure avant premiers deploiements reels | La chaine CI/CD existe, mais l'historique de livraison n'est pas encore suffisant | Relever l'heure de merge, l'heure de fin CI et l'heure de deploiement |
-| Deployment Frequency | Staging automatisable apres CI verte ; production manuelle | Niveau adapte au projet, avec controle humain en production | Suivre le nombre de workflows `deploy.yml` reussis par semaine |
-| MTTR | Objectif initial inferieur a 4 heures | La restauration reste manuelle mais documentee | Tester la procedure de rollback a chaque release majeure |
-| Change Failure Rate | Non mesure | Les echecs de deploiement seront visibles dans GitHub Actions | Taguer les incidents et calculer le ratio mensuellement |
-
-La maturite DORA actuelle est donc intermediaire : la mesure est possible, mais les indicateurs doivent etre alimentes par plusieurs cycles reels avant d'etre interpretes comme des KPI de performance.
+Pour fiabiliser ces mesures, chaque deploiement doit etre associe a un commit, a une execution CI et a une fenetre de surveillance ELK. En cas d'erreur applicative observee apres deploiement, l'evenement doit etre qualifie : simple erreur utilisateur, bug applicatif, incident de service ou echec de changement.
 
 ### 6.2 KPI personnalises
 
-Les KPI proposes sont :
+Les KPI operationnels completent les metriques DORA avec des indicateurs plus directement exploitables par l'equipe.
 
-- temps total du workflow CI ;
-- duree du job backend ;
-- duree du job frontend ;
-- duree du job Docker ;
-- taux de reussite des tests ;
-- couverture backend ;
-- couverture frontend ;
-- nombre de vulnerabilites SonarCloud ;
-- nombre de vulnerabilites npm de niveau eleve ;
-- nombre de deploiements reussis ;
-- nombre de deploiements echoues.
+| KPI | Methode de calcul | Source | Valeur initiale ou cible | Utilite |
+| --- | --- | --- | --- | --- |
+| Temps total de CI | Duree entre le debut et la fin du workflow `ci.yml` | GitHub Actions | A relever sur 3 executions minimum | Identifier les ralentissements du pipeline |
+| Temps de build et tests backend | Duree du job `Backend build and tests` | GitHub Actions | A relever sur 3 executions minimum | Surveiller la performance Gradle et les tests Java |
+| Temps de build et tests frontend | Duree du job `Frontend build and tests` | GitHub Actions | A relever sur 3 executions minimum | Surveiller `npm ci`, les tests Angular et le build |
+| Qualite SonarCloud | Quality gate, vulnerabilites, bugs, dette technique et couverture | SonarCloud | Quality gate attendu : OK | Garantir un niveau minimal de qualite avant livraison |
+| Frequence des erreurs applicatives | Nombre de logs `ERROR` ou de messages contenant `error` sur une periode | Kibana, index `orion-microcrm-logs-*` | Observation locale initiale : 0 erreur | Relier la stabilite applicative aux livraisons |
+| Volume de logs par service | Nombre de logs groupes par `service.keyword` | Kibana | Observation locale initiale : `back=33`, `front=17`, `manual=1` | Verifier que les deux services produisent des logs centralises |
+| Disponibilite locale | Etat des healthchecks Docker | Docker Compose | `back` et `front` healthy lors du test local | Confirmer que les services redemarrent correctement |
 
-Ces KPI sont consultables dans GitHub Actions, SonarCloud et les logs de deploiement. Pour un environnement plus mature, ils pourraient etre exportes vers un outil de monitoring dedie.
-
-Les KPI applicatifs proposes sont :
-
-- nombre de requetes HTTP backend par periode ;
-- taux de reponses en erreur ;
-- volume de logs par service ;
-- nombre de redemarrages de conteneurs ;
-- pics d'activite par heure ;
-- temps de demarrage des services apres deploiement ;
-- disponibilite observee via healthchecks.
-
-Les KPI de qualite proposes sont :
-
-- couverture lignes backend et frontend ;
-- evolution du nombre de tests ;
-- nombre de vulnerabilites SonarCloud ;
-- nombre de security hotspots ;
-- dette technique SonarCloud ;
-- evolution des vulnerabilites npm de niveau eleve.
+Le log `manual=1` correspond a un evenement de test envoye directement a Logstash pour verifier la chaine ELK. Les valeurs `back=33` et `front=17` confirment que les logs applicatifs sont bien centralises apres correction de l'adresse GELF vers `udp://host.docker.internal:12201`.
 
 ### 6.3 Analyse synthetique du monitoring
 
-Dans la solution actuelle, le monitoring est principalement base sur les retours GitHub Actions et SonarCloud. Les points forts sont la simplicite, la lisibilite et la disponibilite immediate des logs.
+Dans la solution actuelle, le monitoring combine les retours GitHub Actions, SonarCloud et ELK. Les donnees de pipeline permettent de suivre la performance de livraison, tandis que Kibana donne une premiere vision runtime des logs applicatifs.
+
+Le tableau de bord Kibana `Orion MicroCRM - Logs locaux` affiche actuellement :
+
+- un tableau de volume de logs par service ;
+- un compteur d'erreurs applicatives ;
+- un data view `orion-microcrm-logs-*` base sur `@timestamp`.
+
+Analyse provisoire :
+
+- la chaine ELK est operationnelle, car les logs `back`, `front` et `manual` sont indexes ;
+- le backend produit des logs JSON via Logback, ce qui facilite l'extraction du niveau de log ;
+- le frontend produit des logs Caddy au format JSON, ce qui permet de suivre l'activite HTTP ;
+- le compteur d'erreurs est a `0` lors de l'observation initiale, ce qui indique l'absence d'erreur applicative detectee sur la fenetre observee ;
+- les metriques DORA restent a consolider avec l'historique GitHub Actions, car l'objectif recommande est de relever au moins trois executions.
 
 Les limites sont :
 
-- absence de dashboard applicatif dedie ;
+- dashboard Kibana volontairement simple ;
 - absence de monitoring runtime avance ;
 - absence d'alerting automatique vers email, Slack ou Teams ;
 - healthchecks simples ;
@@ -779,13 +757,13 @@ Les ameliorations recommandees sont :
 
 - ajouter Actuator ;
 - exposer un endpoint `/actuator/health` ;
-- utiliser la stack ELK locale fournie par `docker-compose.monitoring.yml` pour centraliser et visualiser les logs ;
+- conserver la stack ELK locale fournie par `docker-compose-elk.yml` pour centraliser et visualiser les logs ;
 - creer un dashboard des workflows GitHub Actions ;
 - ajouter une notification en cas d'echec de workflow.
 
 ### 6.4 Stack ELK locale
 
-Une stack ELK locale est fournie dans `docker-compose.monitoring.yml`. Elle reste separee du `docker-compose.yml` applicatif afin de ne pas alourdir le lancement standard de l'application et de ne pas executer ELK dans la CI/CD.
+Une stack ELK locale est fournie dans `docker-compose-elk.yml`. Elle reste separee du `docker-compose.yml` applicatif afin de ne pas alourdir le lancement standard de l'application et de ne pas executer ELK dans la CI/CD.
 
 Services prevus :
 
@@ -798,22 +776,22 @@ La version Elastic retenue est `8.17.10`, une version 8.x stable et adaptee au b
 Commande de lancement :
 
 ```bash
-docker compose -f docker-compose.monitoring.yml up -d
+docker compose -f docker-compose-elk.yml up -d
 ```
 
 Commande d'arret :
 
 ```bash
-docker compose -f docker-compose.monitoring.yml down
+docker compose -f docker-compose-elk.yml down
 ```
 
 Ordre de lancement recommande :
 
-1. demarrer ELK avec `docker compose -f docker-compose.monitoring.yml up -d` ;
+1. demarrer ELK avec `docker compose -f docker-compose-elk.yml up -d` ;
 2. demarrer l'application avec `docker compose up --build -d` ;
 3. generer de l'activite sur `http://localhost` et `http://localhost:8080` ;
 4. ouvrir Kibana sur `http://localhost:5601` ;
-5. importer le dashboard `monitoring/kibana/orion-microcrm-dashboard.ndjson`.
+5. ouvrir le dashboard importe automatiquement `Orion MicroCRM - Logs locaux`.
 
 Le pipeline Logstash est defini dans `monitoring/logstash/pipeline/logstash.conf`. Il ajoute les champs `application=orion-microcrm` et `environment=local`, enrichit les logs avec le service detecte (`front` ou `back`), extrait les messages JSON lorsque c'est possible, puis indexe les logs dans Elasticsearch avec le format `orion-microcrm-logs-YYYY.MM.dd`.
 
@@ -821,7 +799,7 @@ Les logs applicatifs sont centralises de la maniere suivante :
 
 - backend Spring Boot : logs JSON produits par `back/src/main/resources/logback-spring.xml` avec `logstash-logback-encoder` ;
 - frontend Caddy : logs d'acces JSON produits par `misc/docker/Caddyfile` ;
-- collecte Docker : driver `gelf` configure dans `docker-compose.yml` pour les services `front` et `back`, vers `udp://localhost:12201`.
+- collecte Docker : driver `gelf` configure dans `docker-compose.yml` pour les services `front` et `back`, vers `udp://host.docker.internal:12201`.
 
 Indicateurs a construire dans Kibana :
 
@@ -832,7 +810,7 @@ Indicateurs a construire dans Kibana :
 - correlation entre heure de deploiement et erreurs applicatives ;
 - suivi des redemarrages ou indisponibilites observees.
 
-Le dashboard fourni contient une premiere visualisation du volume de logs par service et une visualisation des erreurs applicatives. Si l'import automatique n'est pas utilise, les visualisations peuvent etre creees manuellement dans Kibana avec le data view `orion-microcrm-logs-*` et le champ temporel `@timestamp`.
+Le dashboard fourni contient une premiere visualisation du volume de logs par service et une visualisation des erreurs applicatives. L'import est automatise par le service `kibana-init`. Si l'import automatique n'est pas utilise, les visualisations peuvent etre creees manuellement dans Kibana avec le data view `orion-microcrm-logs-*` et le champ temporel `@timestamp`.
 
 Cette stack est adaptee au contexte local et pedagogique. Pour un environnement de production, il faudrait ajouter une authentification, TLS, une politique de retention des index et une strategie de stockage adaptee. Il faut prevoir environ 4 Go de RAM disponibles pour faire tourner confortablement l'application et ELK en parallele.
 
@@ -1079,10 +1057,10 @@ docker compose down
 Stack ELK locale :
 
 ```bash
-docker compose -f docker-compose.monitoring.yml config
-docker compose -f docker-compose.monitoring.yml up -d
-docker compose -f docker-compose.monitoring.yml logs -f
-docker compose -f docker-compose.monitoring.yml down
+docker compose -f docker-compose-elk.yml config
+docker compose -f docker-compose-elk.yml up -d
+docker compose -f docker-compose-elk.yml logs -f
+docker compose -f docker-compose-elk.yml down
 ```
 
 Import du dashboard Kibana :
@@ -1206,7 +1184,7 @@ Creation de la GitHub Release :
 | `docker compose ps` | Verifier l'etat des services | `docker-compose.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml` | CI, CD et local |
 | `docker compose logs --tail=100` | Rendre les logs de demarrage exploitables | `.github/workflows/deploy.yml` | CD apres redemarrage |
 | `docker compose down --remove-orphans` | Arreter et nettoyer les services de validation | `.github/workflows/ci.yml` | CI et local |
-| `docker compose -f docker-compose.monitoring.yml up -d` | Lancer Elasticsearch, Logstash et Kibana en local | `docker-compose.monitoring.yml`, `monitoring/logstash/pipeline/logstash.conf` | Monitoring local |
+| `docker compose -f docker-compose-elk.yml up -d` | Lancer Elasticsearch, Logstash et Kibana en local | `docker-compose-elk.yml`, `monitoring/logstash/pipeline/logstash.conf` | Monitoring local |
 | `curl ... /api/saved_objects/_import` | Importer le dashboard Kibana local | `monitoring/kibana/orion-microcrm-dashboard.ndjson` | Monitoring local |
 | `tar -czf orion-microcrm-front-<version>.tar.gz` | Packager le build Angular sans dependances locales ni secrets | `.github/workflows/release.yml` | Release sur tag SemVer |
 | `softprops/action-gh-release@v3` | Creer la GitHub Release et joindre les artefacts | `.github/workflows/release.yml` | Release sur tag SemVer |
