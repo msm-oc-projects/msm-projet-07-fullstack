@@ -19,6 +19,8 @@ services:
     container_name: orion-logstash
     depends_on:
       - elasticsearch
+    environment:
+      LS_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
       - "12201:12201/udp"
       - "5000:5000"
@@ -41,6 +43,24 @@ services:
     networks:
       - elk
     restart: unless-stopped
+
+  kibana-init:
+    image: curlimages/curl:8.11.1
+    container_name: orion-kibana-init
+    depends_on:
+      - kibana
+    volumes:
+      - ./monitoring/kibana:/kibana:ro
+    networks:
+      - elk
+    command: >
+      sh -c '
+        until curl -fsS http://kibana:5601/api/status > /dev/null; do
+          sleep 5;
+        done;
+        curl -fsS -X POST "http://kibana:5601/api/saved_objects/_import?overwrite=true" -H "kbn-xsrf: true" --form file=@/kibana/orion-microcrm-dashboard.ndjson
+      '
+    restart: "no"
 
 networks:
   elk:

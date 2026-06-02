@@ -102,6 +102,47 @@ Arreter :
 docker compose down
 ```
 
+## Monitoring local ELK
+
+La stack ELK locale est definie dans `docker-compose-elk.yml` et separee du pipeline CI/CD. Elle lance Elasticsearch, Logstash, Kibana et un conteneur d'initialisation qui importe automatiquement le dashboard Kibana present dans `monitoring/kibana/orion-microcrm-dashboard.ndjson`.
+
+### Lancer la stack ELK
+
+Prevoir environ 4 Go de RAM disponibles pour Docker.
+
+```bash
+docker compose -f docker-compose-elk.yml up -d
+```
+
+Services exposes :
+
+- Elasticsearch : `http://localhost:9200`
+- Logstash GELF : `udp://localhost:12201`
+- Logstash TCP JSON : `localhost:5000`
+- Logstash Beats : `localhost:5044`
+- Kibana : `http://localhost:5601`
+
+### Envoyer les logs applicatifs
+
+L'application Docker envoie les logs du backend Spring Boot et du frontend vers Logstash via le driver Docker `gelf`. Lancez d'abord ELK, puis l'application :
+
+```bash
+docker compose -f docker-compose-elk.yml up -d
+docker compose up --build -d
+```
+
+Le backend utilise `back/src/main/resources/logback-spring.xml` pour produire des logs JSON. Logstash centralise ensuite les evenements dans l'index `orion-microcrm-logs-*` avec les champs `application`, `environment`, `service` et `log_level`.
+
+### Consulter le dashboard
+
+Dans Kibana, ouvrez `Dashboards`, puis `Orion MicroCRM - Logs locaux`. Le dashboard contient des visualisations de volume de logs et d'erreurs applicatives. Le data view `orion-microcrm-logs-*` est importe avec le dashboard.
+
+Pour arreter uniquement ELK :
+
+```bash
+docker compose -f docker-compose-elk.yml down
+```
+
 ## Pipeline CI/CD
 
 Les workflows GitHub Actions sont situes dans `.github/workflows/`.
