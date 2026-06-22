@@ -27,95 +27,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Vérifie les prérequis avant toute tentative de connexion distante.
-  preflight:
-    name: Vérifier la configuration du déploiement
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    environment: ${{ github.event_name == 'workflow_run' && 'staging' || inputs.environment }}
-    outputs:
-      configured: ${{ steps.check.outputs.configured }}
-    steps:
-      - name: Vérifier les secrets de déploiement
-        id: check
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          set -euo pipefail
-          missing=0
-
-          for secret_name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH; do
-            if [ -z "${!secret_name}" ]; then
-              echo "::warning title=Missing deployment secret::${secret_name} is not configured."
-              missing=1
-            fi
-          done
-
-          if [ "$missing" -ne 0 ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-
-            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-              echo "::error title=Deployment unavailable::Configure DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY and DEPLOY_PATH before running a manual deployment."
-              exit 1
-            fi
-
-            echo "::notice title=Deployment skipped::No deployment target is configured, so the automatic staging deployment is skipped."
-            exit 0
-          fi
-
-          echo "configured=true" >> "$GITHUB_OUTPUT"
-
-  # Déploiement SSH par mise à jour du dépôt et relance de Docker Compose.
+  # Déploiement direct sur la VM portant les labels du runner auto-hébergé.
   deploy:
     name: Déployer avec Docker Compose
-    runs-on: ubuntu-latest
-    needs: preflight
-    if: ${{ needs.preflight.outputs.configured == 'true' }}
+    runs-on: [self-hosted, linux, x64]
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     environment: ${{ github.event_name == 'workflow_run' && 'staging' || inputs.environment }}
+    timeout-minutes: 20
     steps:
-      - name: Configurer SSH
+      # Le déploiement automatique reprend exactement le commit validé par la CI.
+      - name: Récupérer la version à déployer
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Vérifier la plateforme de déploiement
         shell: bash
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          docker version
+          docker compose version
+          docker compose config
 
-      - name: Mettre à jour le serveur et redémarrer les services
+      # Les images sont reconstruites sur la VM, puis Compose attend les healthchecks.
+      - name: Construire et démarrer l'application
+        run: docker compose up --build -d --remove-orphans --wait --wait-timeout 240
+
+      - name: Vérifier le déploiement
         shell: bash
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" << 'EOF'
-            set -e
-            cd "$DEPLOY_PATH"
-            git fetch origin main
-            git checkout main
-            git pull --ff-only origin main
-            docker compose config
-            # Attendre les healthchecks évite de déclarer un déploiement réussi trop tôt.
-            docker compose up --build -d --remove-orphans --wait --wait-timeout 240
-            docker compose ps
-            docker compose logs --tail=100
-            # Nettoyage limité aux images inutilisées.
-            docker image prune -f
-          EOF
+          docker compose ps
+          curl --fail --silent --show-error http://localhost/ > /dev/null
+          curl --fail --silent --show-error http://localhost/api/persons > /dev/null
 
-      # La clé temporaire est supprimée même si le déploiement échoue.
-      - name: Supprimer la clé SSH temporaire
-        if: always()
-        shell: bash
-        run: rm -f ~/.ssh/deploy_key
+      - name: Afficher les journaux en cas d'échec
+        if: failure()
+        run: docker compose logs --tail=200
+
+      # Le nettoyage ne supprime que les images qui ne sont plus référencées.
+      - name: Nettoyer les images inutilisées
+        if: success()
+        run: docker image prune -f

@@ -179,9 +179,19 @@ Il realise :
 
 ### Deploiement
 
-Le workflow `deploy.yml` est declenche manuellement depuis GitHub Actions.
+Le workflow `deploy.yml` utilise un runner GitHub Actions auto-heberge sur la VM cible.
 
-Il se connecte au serveur cible en SSH, met a jour le depot sur `origin/main`, reconstruit les images et redemarre les services avec Docker Compose.
+Le staging est declenche automatiquement apres une CI reussie sur `main`. La production reste declenchee manuellement depuis GitHub Actions et peut etre protegee par une approbation d'environnement.
+
+Le workflow recupere exactement le commit valide par la CI, reconstruit les images sur la VM, demarre les services avec Docker Compose, attend les healthchecks et execute deux smoke tests HTTP.
+
+La VM cible doit disposer d'un runner portant les labels :
+
+```text
+self-hosted, linux, x64
+```
+
+Elle doit egalement fournir Git, Docker, Docker Compose et un acces Docker sans `sudo` pour l'utilisateur du runner.
 
 ## Secrets GitHub requis
 
@@ -189,12 +199,7 @@ Pour SonarCloud :
 
 - `SONAR_TOKEN`
 
-Pour le deploiement :
-
-- `DEPLOY_HOST` : hote cible.
-- `DEPLOY_USER` : utilisateur SSH.
-- `DEPLOY_SSH_KEY` : cle privee SSH.
-- `DEPLOY_PATH` : chemin du depot clone sur le serveur.
+Le deploiement par runner auto-heberge ne necessite aucun secret SSH. Pour changer de cible, il suffit d'enregistrer un autre runner compatible et d'adapter les labels `runs-on` du workflow.
 
 ## SonarCloud
 
