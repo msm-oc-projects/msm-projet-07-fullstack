@@ -1,5 +1,6 @@
 name: CI
 
+# Déclenchement sur la branche principale, les pull requests et à la demande.
 on:
   push:
     branches: [main]
@@ -8,37 +9,41 @@ on:
   workflow_dispatch:
 
 permissions:
+  # Principe du moindre privilège : la CI n'a besoin que d'un accès en lecture.
   contents: read
   pull-requests: read
 
+# Versions centralisées pour garantir la cohérence entre les jobs.
 env:
   JAVA_VERSION: "17"
   NODE_VERSION: "20"
 
 jobs:
+  # Compilation, tests JUnit et génération du rapport JaCoCo.
   backend:
-    name: Backend build and tests
+    name: Build et tests du backend
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: back
     steps:
-      - name: Checkout
+      - name: Récupérer le dépôt
         uses: actions/checkout@v6
 
-      - name: Set up Java
+      - name: Installer Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: gradle
 
-      - name: Build and test backend
+      - name: Construire et tester le backend
         run: |
           chmod +x ./gradlew
           ./gradlew clean build
 
-      - name: Upload backend test reports
+      # Les rapports et classes compilées sont réutilisés par SonarCloud.
+      - name: Publier les rapports du backend
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -49,33 +54,34 @@ jobs:
             back/build/classes/java/main
           if-no-files-found: error
 
+  # Installation reproductible, tests Karma/Jasmine et build Angular.
   frontend:
-    name: Frontend build and tests
+    name: Build et tests du frontend
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: front
     steps:
-      - name: Checkout
+      - name: Récupérer le dépôt
         uses: actions/checkout@v6
 
-      - name: Set up Node.js
+      - name: Installer Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: front/package-lock.json
 
-      - name: Install dependencies
+      - name: Installer les dépendances
         run: npm ci
 
-      - name: Test frontend
+      - name: Tester le frontend
         run: npm run test:ci
 
-      - name: Build frontend
+      - name: Construire le frontend
         run: npm run build
 
-      - name: Upload frontend test reports
+      - name: Publier la couverture du frontend
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -83,30 +89,32 @@ jobs:
           path: front/coverage
           if-no-files-found: error
 
+  # Analyse statique après réussite des deux piles applicatives.
   sonarcloud:
-    name: SonarCloud analysis
+    name: Analyse SonarCloud
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     if: ${{ github.actor != 'dependabot[bot]' }}
     steps:
-      - name: Checkout
+      - name: Récupérer l'historique Git complet
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Download backend reports
+      - name: Télécharger les rapports du backend
         uses: actions/download-artifact@v8
         with:
           name: backend-test-reports
           path: back/build
 
-      - name: Download frontend coverage
+      - name: Télécharger la couverture du frontend
         uses: actions/download-artifact@v8
         with:
           name: frontend-coverage
           path: front/coverage
 
-      - name: Run SonarCloud scan
+      # Le quality gate bloque le job si les critères SonarCloud ne sont pas respectés.
+      - name: Exécuter l'analyse SonarCloud
         uses: SonarSource/sonarqube-scan-action@v8
         with:
           args: >
@@ -114,18 +122,19 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
+  # Validation indépendante de la capacité à construire et démarrer les conteneurs.
   docker:
-    name: Docker build validation
+    name: Validation Docker
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     steps:
-      - name: Checkout
+      - name: Récupérer le dépôt
         uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
+      - name: Configurer Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build backend image
+      - name: Construire l'image backend
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -134,7 +143,7 @@ jobs:
           push: false
           tags: orion-microcrm-back:ci
 
-      - name: Build frontend image
+      - name: Construire l'image frontend
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -143,15 +152,20 @@ jobs:
           push: false
           tags: orion-microcrm-front:ci
 
-      - name: Validate Docker Compose
+      - name: Valider Docker Compose
         run: docker compose config
 
-      - name: Start application with Docker Compose
-        run: docker compose up --build -d
+      # Compose attend que les deux healthchecks soient au vert.
+      - name: Démarrer l'application avec Docker Compose
+        run: docker compose up --build -d --wait --wait-timeout 240
 
-      - name: Check containers
-        run: docker compose ps
+      - name: Exécuter les smoke tests
+        run: |
+          docker compose ps
+          curl --fail --silent --show-error http://localhost/ > /dev/null
+          curl --fail --silent --show-error http://localhost/api/persons > /dev/null
 
-      - name: Stop application
+      # Le nettoyage est exécuté même lorsqu'une étape précédente échoue.
+      - name: Arrêter l'application
         if: always()
         run: docker compose down --remove-orphans

@@ -1,5 +1,6 @@
 name: Release
 
+# Une release est créée depuis un tag SemVer poussé ou sélectionné manuellement.
 on:
   push:
     tags:
@@ -7,23 +8,26 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing SemVer tag to release, for example v1.0.0
+        description: Tag SemVer existant à publier, par exemple v1.0.0
         required: true
         type: string
 
 permissions:
+  # Le droit d'écriture est limité à la création de la release GitHub.
   contents: write
 
+# Versions communes utilisées pour reconstruire les artefacts.
 env:
   JAVA_VERSION: "17"
   NODE_VERSION: "20"
 
 jobs:
   release:
-    name: Build artifacts and publish release
+    name: Construire les artefacts et publier la release
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve release tag
+      # Refuse les tags ne respectant pas le format stable vMAJOR.MINOR.PATCH.
+      - name: Déterminer le tag de release
         id: release_tag
         shell: bash
         run: |
@@ -42,38 +46,39 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout
+      - name: Récupérer le tag
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.release_tag.outputs.tag }}
 
-      - name: Set up Java
+      - name: Installer Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: gradle
 
-      - name: Build backend artifact
+      - name: Construire l'artefact backend
         working-directory: back
         run: |
           chmod +x ./gradlew
           ./gradlew clean build
 
-      - name: Set up Node.js
+      - name: Installer Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: front/package-lock.json
 
-      - name: Build frontend artifact
+      - name: Construire l'artefact frontend
         working-directory: front
         run: |
           npm ci
           npm run build
 
-      - name: Package release artifacts
+      # Le JAR et les fichiers Angular sont renommés avec la version de la release.
+      - name: Préparer les artefacts de release
         shell: bash
         run: |
           set -euo pipefail
@@ -86,14 +91,14 @@ jobs:
           test -s "release-assets/orion-microcrm-back-${VERSION}.jar"
           test -s "release-assets/orion-microcrm-front-${VERSION}.tar.gz"
 
-      - name: Upload workflow artifacts
+      - name: Publier les artefacts du workflow
         uses: actions/upload-artifact@v7
         with:
           name: release-artifacts-${{ steps.release_tag.outputs.tag }}
           path: release-assets/*
           if-no-files-found: error
 
-      - name: Create GitHub release
+      - name: Créer la release GitHub
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.release_tag.outputs.tag }}

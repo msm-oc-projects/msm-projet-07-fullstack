@@ -85,8 +85,10 @@ docker compose up --build -d
 
 Services exposes :
 
-- Frontend : `http://localhost` et `https://localhost`
+- Frontend : `http://localhost`
 - Backend : `http://localhost:8080`
+
+Le frontend transmet les requetes `/api` au backend par l'intermediaire de Caddy. Cette configuration evite de coder l'adresse du serveur dans l'application Angular et reste valable sur un poste local comme sur une VM.
 
 Verifier l'etat :
 
@@ -94,6 +96,8 @@ Verifier l'etat :
 docker compose ps
 docker compose logs -f
 ```
+
+Les services `front` et `back` doivent apparaitre avec l'etat `healthy`.
 
 Arreter :
 
@@ -221,4 +225,3 @@ L'application utilise actuellement une base HSQLDB embarquee adaptee a la demons
 - test de restauration mensuel ;
 - stockage chiffre hors serveur applicatif ;
 - definition d'un RPO/RTO cible dans la documentation d'exploitation.
-

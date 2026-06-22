@@ -1,6 +1,9 @@
+# Extension du Compose principal activant l'envoi des journaux vers Logstash.
+# Utilisation : docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
 services:
   back:
     logging:
+      # Le pilote GELF transmet les sorties standard du backend à Logstash.
       driver: gelf
       options:
         gelf-address: "${GELF_ADDRESS:-udp://localhost:12201}"
@@ -8,6 +11,7 @@ services:
 
   front:
     logging:
+      # Le même mécanisme centralise les journaux JSON produits par Caddy.
       driver: gelf
       options:
         gelf-address: "${GELF_ADDRESS:-udp://localhost:12201}"

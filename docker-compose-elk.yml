@@ -1,8 +1,11 @@
 services:
+  # Stockage et indexation des journaux applicatifs.
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-8.17.10}
     container_name: orion-elasticsearch
     environment:
+      # Configuration locale mono-nœud sans authentification.
+      # Elle ne doit pas être utilisée telle quelle en production.
       discovery.type: single-node
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: -Xms1g -Xmx1g
@@ -14,6 +17,7 @@ services:
       - elk
     restart: unless-stopped
 
+  # Réception, transformation et transmission des journaux vers Elasticsearch.
   logstash:
     image: docker.elastic.co/logstash/logstash:${ELASTIC_VERSION:-8.17.10}
     container_name: orion-logstash
@@ -22,15 +26,19 @@ services:
     environment:
       LS_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
+      # GELF reçoit les journaux produits par les conteneurs de l'application.
       - "12201:12201/udp"
+      # Entrées TCP JSON et Beats disponibles pour des collecteurs complémentaires.
       - "5000:5000"
       - "5044:5044"
     volumes:
+      # La configuration du pipeline est montée en lecture seule.
       - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
     networks:
       - elk
     restart: unless-stopped
 
+  # Interface de consultation et de visualisation des journaux.
   kibana:
     image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION:-8.17.10}
     container_name: orion-kibana
@@ -44,6 +52,7 @@ services:
       - elk
     restart: unless-stopped
 
+  # Conteneur éphémère chargé d'importer automatiquement le dashboard Kibana.
   kibana-init:
     image: curlimages/curl:8.11.1
     container_name: orion-kibana-init
@@ -63,8 +72,10 @@ services:
     restart: "no"
 
 networks:
+  # Réseau isolé réservé aux composants de la stack ELK.
   elk:
     driver: bridge
 
 volumes:
+  # Volume persistant conservant les index Elasticsearch entre les redémarrages.
   elasticsearch-data:

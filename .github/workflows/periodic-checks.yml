@@ -1,56 +1,60 @@
 name: Periodic Checks
 
+# Contrôle hebdomadaire le lundi à 05:00 UTC, également exécutable à la demande.
 on:
   schedule:
     - cron: "0 5 * * 1"
   workflow_dispatch:
 
 permissions:
+  # Aucun droit d'écriture n'est nécessaire pour les contrôles périodiques.
   contents: read
 
 jobs:
+  # Rejoue les tests et contrôle les dépendances livrées en production.
   tests-and-security:
-    name: Weekly tests and dependency audit
+    name: Tests hebdomadaires et audit des dépendances
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Récupérer le dépôt
         uses: actions/checkout@v6
 
-      - name: Set up Java
+      - name: Installer Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
 
-      - name: Set up Node.js
+      - name: Installer Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: front/package-lock.json
 
-      - name: Backend tests
+      - name: Tester le backend
         working-directory: back
         run: |
           chmod +x ./gradlew
           ./gradlew clean test
 
-      - name: Install frontend dependencies
+      - name: Installer les dépendances frontend
         working-directory: front
         run: npm ci
 
-      - name: Frontend tests
+      - name: Tester le frontend
         working-directory: front
         run: npm run test:ci
 
-      - name: Audit frontend production dependencies
+      # L'audit porte uniquement sur les dépendances présentes dans l'image finale.
+      - name: Auditer les dépendances frontend de production
         id: frontend_audit
         continue-on-error: true
         working-directory: front
         run: npm audit --omit=dev --audit-level=critical --json > npm-audit-report.json
 
-      - name: Upload frontend dependency audit report
+      - name: Publier le rapport d'audit frontend
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -58,7 +62,7 @@ jobs:
           path: front/npm-audit-report.json
           if-no-files-found: ignore
 
-      - name: Summarize frontend dependency audit
+      - name: Résumer l'audit des dépendances frontend
         if: always()
         working-directory: front
         shell: bash
@@ -89,10 +93,11 @@ jobs:
           }
           NODE
 
-      - name: Docker Compose validation
+      - name: Valider Docker Compose
         run: docker compose config
 
-      - name: Enforce critical dependency threshold
+      # Les niveaux élevés sont signalés ; le niveau critique bloque le workflow.
+      - name: Appliquer le seuil des vulnérabilités critiques
         if: ${{ steps.frontend_audit.outcome == 'failure' }}
         run: |
           echo "::error title=Critical frontend dependency vulnerability::The production dependency audit detected at least one critical vulnerability."

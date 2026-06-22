@@ -1,13 +1,16 @@
 services:
+  # API REST Spring Boot construite depuis la cible "back" du Dockerfile.
   back:
     image: orion-microcrm-back:latest
     build:
       context: .
       dockerfile: Dockerfile
       target: back
+    # Le port est exposé directement pour les contrôles et le développement local.
     ports:
       - "8080:8080"
     restart: unless-stopped
+    # Le service est sain lorsque l'API Spring Boot répond en HTTP.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -15,20 +18,24 @@ services:
       retries: 5
       start_period: 30s
 
+  # Frontend Angular servi par Caddy, qui relaie /api vers le backend.
   front:
     image: orion-microcrm-front:latest
     build:
       context: .
       dockerfile: Dockerfile
       target: front
+    # Le port public 80 est redirigé vers le port non privilégié 8080 du conteneur.
     ports:
-      - "80:80"
+      - "80:8080"
+    # Le frontend attend que le backend soit réellement sain avant de démarrer.
     depends_on:
       back:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
+    # Le healthcheck confirme que Caddy sert correctement l'application Angular.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
