@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+# Windows command scripts require CRLF line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Unix scripts must remain executable with LF line endings.
+*.sh text eol=lf
+gradlew text eol=lf
