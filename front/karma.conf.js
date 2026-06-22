@@ -37,6 +37,8 @@ module.exports = function (config) {
         flags: ["--no-sandbox"],
       },
     },
+    browserNoActivityTimeout: 120000,
+    captureTimeout: 120000,
     restartOnFileChange: true,
   });
 };

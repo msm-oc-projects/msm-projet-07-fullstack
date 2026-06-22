@@ -46,6 +46,8 @@ jobs:
           path: |
             back/build/reports/tests/test
             back/build/reports/jacoco/test
+            back/build/classes/java/main
+          if-no-files-found: error
 
   frontend:
     name: Frontend build and tests
@@ -79,6 +81,7 @@ jobs:
         with:
           name: frontend-coverage
           path: front/coverage
+          if-no-files-found: error
 
   sonarcloud:
     name: SonarCloud analysis
@@ -91,34 +94,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - name: Download backend reports
+        uses: actions/download-artifact@v8
         with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: gradle
+          name: backend-test-reports
+          path: back/build
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v8
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: front/package-lock.json
-
-      - name: Generate backend coverage
-        working-directory: back
-        run: |
-          chmod +x ./gradlew
-          ./gradlew test jacocoTestReport
-
-      - name: Generate frontend coverage
-        working-directory: front
-        run: |
-          npm ci
-          npm run test:ci
+          name: frontend-coverage
+          path: front/coverage
 
       - name: Run SonarCloud scan
-        uses: SonarSource/sonarqube-scan-action@v7
+        uses: SonarSource/sonarqube-scan-action@v8
         with:
           args: >
             -Dsonar.qualitygate.wait=true
