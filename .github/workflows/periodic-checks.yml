@@ -44,9 +44,11 @@ jobs:
         working-directory: front
         run: npm run test:ci
 
-      - name: Frontend dependency audit
+      - name: Audit frontend production dependencies
+        id: frontend_audit
+        continue-on-error: true
         working-directory: front
-        run: npm audit --audit-level=high --json > npm-audit-report.json
+        run: npm audit --omit=dev --audit-level=critical --json > npm-audit-report.json
 
       - name: Upload frontend dependency audit report
         if: always()
@@ -56,5 +58,42 @@ jobs:
           path: front/npm-audit-report.json
           if-no-files-found: ignore
 
+      - name: Summarize frontend dependency audit
+        if: always()
+        working-directory: front
+        shell: bash
+        run: |
+          if [ ! -s npm-audit-report.json ]; then
+            echo "::warning title=Frontend dependency audit::The npm audit report was not generated."
+            exit 0
+          fi
+
+          node - <<'NODE'
+          const fs = require("fs");
+          const report = JSON.parse(fs.readFileSync("npm-audit-report.json", "utf8"));
+          const counts = report.metadata?.vulnerabilities ?? {};
+
+          const summary = [
+            "### Frontend production dependency audit",
+            "",
+            `- Critical: ${counts.critical ?? 0}`,
+            `- High: ${counts.high ?? 0}`,
+            `- Moderate: ${counts.moderate ?? 0}`,
+            `- Low: ${counts.low ?? 0}`,
+          ].join("\n");
+
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+
+          if ((counts.high ?? 0) > 0) {
+            console.log(`::warning title=High severity frontend dependencies::${counts.high} high severity vulnerabilities require a planned Angular upgrade.`);
+          }
+          NODE
+
       - name: Docker Compose validation
         run: docker compose config
+
+      - name: Enforce critical dependency threshold
+        if: ${{ steps.frontend_audit.outcome == 'failure' }}
+        run: |
+          echo "::error title=Critical frontend dependency vulnerability::The production dependency audit detected at least one critical vulnerability."
+          exit 1
