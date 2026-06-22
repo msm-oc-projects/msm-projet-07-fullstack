@@ -1,6 +1,6 @@
 name: Release
 
-# Une release est créée depuis un tag SemVer poussé ou sélectionné manuellement.
+# Une release est créée depuis un tag SemVer stable ou une release candidate.
 on:
   push:
     tags:
@@ -26,7 +26,7 @@ jobs:
     name: Construire les artefacts et publier la release
     runs-on: ubuntu-latest
     steps:
-      # Refuse les tags ne respectant pas le format stable vMAJOR.MINOR.PATCH.
+      # Accepte une version stable vMAJOR.MINOR.PATCH ou de test vMAJOR.MINOR.PATCH-rc.N.
       - name: Déterminer le tag de release
         id: release_tag
         shell: bash
@@ -38,13 +38,20 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
 
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag must follow stable SemVer format vMAJOR.MINOR.PATCH, for example v1.0.0." >&2
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "Le tag doit respecter vMAJOR.MINOR.PATCH ou vMAJOR.MINOR.PATCH-rc.N." >&2
             exit 1
+          fi
+
+          if [[ "$TAG" == *-rc.* ]]; then
+            PRERELEASE=true
+          else
+            PRERELEASE=false
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Récupérer le tag
         uses: actions/checkout@v6
@@ -62,7 +69,7 @@ jobs:
         working-directory: back
         run: |
           chmod +x ./gradlew
-          ./gradlew clean build
+          ./gradlew clean build -PreleaseVersion=${{ steps.release_tag.outputs.version }}
 
       - name: Installer Node.js
         uses: actions/setup-node@v6
@@ -75,7 +82,30 @@ jobs:
         working-directory: front
         run: |
           npm ci
+          npm run test:ci
           npm run build
+
+      # Vérifie que le JAR démarre et que l'API répond avant publication.
+      - name: Tester l'artefact backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          BACKEND_JAR="$(find back/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' -print -quit)"
+          test -n "$BACKEND_JAR"
+
+          java -jar "$BACKEND_JAR" --server.port=18080 > /tmp/orion-release-backend.log 2>&1 &
+          BACKEND_PID=$!
+          trap 'kill "$BACKEND_PID" 2>/dev/null || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:18080/persons > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          cat /tmp/orion-release-backend.log
+          exit 1
 
       # Le JAR et les fichiers Angular sont renommés avec la version de la release.
       - name: Préparer les artefacts de release
@@ -85,11 +115,16 @@ jobs:
           VERSION="${{ steps.release_tag.outputs.version }}"
           mkdir -p release-assets
 
-          cp back/build/libs/microcrm-0.0.1-SNAPSHOT.jar "release-assets/orion-microcrm-back-${VERSION}.jar"
+          BACKEND_JAR="$(find back/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' -print -quit)"
+          test -n "$BACKEND_JAR"
+          test -s front/dist/microcrm/browser/index.html
+
+          cp "$BACKEND_JAR" "release-assets/orion-microcrm-back-${VERSION}.jar"
           tar -czf "release-assets/orion-microcrm-front-${VERSION}.tar.gz" -C front/dist/microcrm/browser .
 
           test -s "release-assets/orion-microcrm-back-${VERSION}.jar"
           test -s "release-assets/orion-microcrm-front-${VERSION}.tar.gz"
+          sha256sum release-assets/* > release-assets/SHA256SUMS
 
       - name: Publier les artefacts du workflow
         uses: actions/upload-artifact@v7
@@ -104,4 +139,5 @@ jobs:
           tag_name: ${{ steps.release_tag.outputs.tag }}
           name: Orion MicroCRM ${{ steps.release_tag.outputs.tag }}
           generate_release_notes: true
+          prerelease: ${{ steps.release_tag.outputs.prerelease }}
           files: release-assets/*

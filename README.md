@@ -174,7 +174,7 @@ Il realise :
 
 - tests backend ;
 - tests frontend ;
-- audit npm avec seuil `high` ;
+- audit npm des dépendances de production avec blocage au seuil `critical` ;
 - validation Docker Compose.
 
 ### Deploiement
@@ -184,6 +184,8 @@ Le workflow `deploy.yml` utilise un runner GitHub Actions auto-heberge sur la VM
 Le staging est declenche automatiquement apres une CI reussie sur `main`. La production reste declenchee manuellement depuis GitHub Actions et peut etre protegee par une approbation d'environnement.
 
 Le workflow recupere exactement le commit valide par la CI, reconstruit les images sur la VM, demarre les services avec Docker Compose, attend les healthchecks et execute deux smoke tests HTTP.
+
+Le déploiement a été validé sur la VM Rocky Linux `Host-001` avec les services `front` et `back` en état `healthy`.
 
 La VM cible doit disposer d'un runner portant les labels :
 
@@ -200,6 +202,34 @@ Pour SonarCloud :
 - `SONAR_TOKEN`
 
 Le deploiement par runner auto-heberge ne necessite aucun secret SSH. Pour changer de cible, il suffit d'enregistrer un autre runner compatible et d'adapter les labels `runs-on` du workflow.
+
+### Releases et versioning semantique
+
+Le workflow `release.yml` publie une release GitHub lors du push d'un tag compatible :
+
+- `vMAJOR.MINOR.PATCH` pour une version stable ;
+- `vMAJOR.MINOR.PATCH-rc.N` pour une release candidate.
+
+La politique retenue suit SemVer :
+
+- `MAJOR` : changement incompatible ;
+- `MINOR` : nouvelle fonctionnalite compatible ;
+- `PATCH` : correction compatible.
+
+Une release candidate n'est pas creee pour chaque commit. La creation du tag reste une action humaine realisee apres une CI verte. Aucune branche de release specifique n'est necessaire pour ce projet.
+
+Exemple de release de test :
+
+```bash
+git tag -a v0.1.0-rc.1 -m "Release candidate v0.1.0-rc.1"
+git push origin v0.1.0-rc.1
+```
+
+Le workflow reconstruit et teste le JAR et le frontend, verifie le demarrage du backend, puis publie :
+
+- `orion-microcrm-back-<version>.jar` ;
+- `orion-microcrm-front-<version>.tar.gz` ;
+- `SHA256SUMS`.
 
 ## SonarCloud
 
