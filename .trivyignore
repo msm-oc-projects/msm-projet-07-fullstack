@@ -1,0 +1,6 @@
+# Caddy v2.11.4 is the official frontend runtime image used to serve Angular.
+# These findings come from the Go stdlib embedded in the Caddy binary.
+# Re-evaluate this exception at each weekly security review and remove it as
+# soon as an official Caddy image is available with Go 1.26.4 or later.
+CVE-2026-27145
+CVE-2026-42504

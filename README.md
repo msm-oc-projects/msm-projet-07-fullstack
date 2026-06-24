@@ -163,8 +163,125 @@ Il realise :
 - build Angular ;
 - analyse SonarCloud ;
 - build des images Docker ;
+- scan Trivy des images backend et frontend avec blocage sur les vulnérabilités `HIGH` et `CRITICAL` corrigées ;
+- publication des images validées dans un registre d'images sur push vers `main` ;
+- validation des manifests K3s avec `kubectl kustomize` ;
 - validation de `docker-compose.yml` ;
 - demarrage de l'application via Docker Compose pour verifier la conteneurisation.
+
+Par défaut, le registre utilisé est GHCR. Il reste paramétrable avec les variables GitHub Actions suivantes :
+
+```text
+CONTAINER_REGISTRY=ghcr.io
+CONTAINER_NAMESPACE=<owner>
+CONTAINER_REGISTRY_USERNAME=<user optionnel>
+```
+
+Pour GHCR, aucun token personnel n'est nécessaire : le workflow utilise `GITHUB_TOKEN`. Pour un autre registre, ajoutez le secret `CONTAINER_REGISTRY_TOKEN` et, si nécessaire, la variable `CONTAINER_REGISTRY_USERNAME`.
+
+Les images publiees par la CI sont :
+
+```text
+<registry>/<namespace>/orion-microcrm-back:<sha-court>
+<registry>/<namespace>/orion-microcrm-back:latest
+<registry>/<namespace>/orion-microcrm-front:<sha-court>
+<registry>/<namespace>/orion-microcrm-front:latest
+```
+
+La publication utilise une authentification injectee par GitHub Actions et la permission `packages: write` lorsque GHCR est utilise. Aucun token personnel n'est stocke dans le depot.
+
+### Scan Trivy local
+
+Pour reproduire le controle de securite des images localement :
+
+```bash
+docker build --target back -t orion-microcrm-back:ci .
+docker build --target front -t orion-microcrm-front:ci .
+
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$PWD/.trivyignore:/project/.trivyignore:ro" \
+  -w /project \
+  aquasec/trivy:latest image \
+  --severity HIGH,CRITICAL \
+  --ignore-unfixed \
+  --exit-code 1 \
+  orion-microcrm-back:ci
+
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$PWD/.trivyignore:/project/.trivyignore:ro" \
+  -w /project \
+  aquasec/trivy:latest image \
+  --severity HIGH,CRITICAL \
+  --ignore-unfixed \
+  --exit-code 1 \
+  orion-microcrm-front:ci
+```
+
+Pour verifier les images publiees apres une CI verte sur `main` :
+
+```bash
+echo "$CONTAINER_REGISTRY_TOKEN" | docker login <registry> -u <user> --password-stdin
+docker pull <registry>/<namespace>/orion-microcrm-back:latest
+docker pull <registry>/<namespace>/orion-microcrm-front:latest
+```
+
+Le fichier `.trivyignore` contient uniquement les exceptions temporaires justifiees pour le runtime Caddy officiel. Il doit etre relu a chaque controle hebdomadaire et nettoye des qu'une image Caddy corrigee est disponible.
+
+### Déploiement K3s
+
+Le dossier `k8s/` fournit une mise en oeuvre Kubernetes légère avec K3s :
+
+- `namespace.yml` : namespace `orion-microcrm` ;
+- `backend.yml` : Deployment et Service du backend Spring Boot ;
+- `frontend.yml` : Deployment et Service du frontend Caddy/Angular ;
+- `ingress.yml` : exposition locale via Traefik sur `microcrm.local` ;
+- `kustomization.yml` : point d'entrée `kubectl apply -k k8s`.
+
+Validation des manifests :
+
+```bash
+kubectl kustomize k8s
+kubectl apply -k k8s --dry-run=client
+```
+
+Déploiement local avec les images construites sur la machine :
+
+```bash
+docker build --target back -t orion-microcrm-back:latest .
+docker build --target front -t orion-microcrm-front:latest .
+docker save orion-microcrm-back:latest | sudo k3s ctr images import -
+docker save orion-microcrm-front:latest | sudo k3s ctr images import -
+
+kubectl apply -k k8s
+kubectl -n orion-microcrm rollout status deployment/back
+kubectl -n orion-microcrm rollout status deployment/front
+kubectl -n orion-microcrm get pods,svc,ingress
+```
+
+Vérification par port-forward :
+
+```bash
+kubectl -n orion-microcrm port-forward svc/front 8088:8080
+curl --fail http://localhost:8088/
+curl --fail http://localhost:8088/api/persons
+```
+
+Utilisation des images publiées dans le registre paramétrable :
+
+```bash
+kubectl -n orion-microcrm set image deployment/back back=<registry>/<namespace>/orion-microcrm-back:<tag>
+kubectl -n orion-microcrm set image deployment/front front=<registry>/<namespace>/orion-microcrm-front:<tag>
+```
+
+Nettoyage :
+
+```bash
+kubectl delete -k k8s
+```
+
+Les commandes détaillées de manipulation et de diagnostic sont documentées dans `k8s/README.md`.
 
 ### Controles periodiques
 
@@ -246,7 +363,10 @@ Si le projet SonarCloud utilise une autre cle, adaptez `sonar-project.properties
 
 - Analyse statique SonarCloud a chaque push et pull request.
 - Audit npm hebdomadaire avec blocage sur vulnerabilites elevees.
+- Scan Trivy des images Docker backend et frontend dans la CI.
+- Mise a jour backend vers Spring Boot `3.5.14` avec Tomcat `10.1.55` pour corriger les vulnerabilites detectees par Trivy.
 - Secrets stockes dans GitHub Secrets, jamais dans le depot.
+- Publication dans un registre paramétrable ; GHCR utilise `GITHUB_TOKEN` et la permission limitee `packages: write`.
 - Images Docker construites depuis des images officielles et limitees aux artefacts necessaires.
 - Exposition limitee aux ports applicatifs requis.
 - Bonnes pratiques OWASP : validation des entrees, logs sans secrets, principe du moindre privilege et mises a jour regulieres.
