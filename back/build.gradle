@@ -10,6 +10,7 @@ group = 'com.openclassroom.devops.orion'
 version = findProperty('releaseVersion') ?: '0.0.1-SNAPSHOT'
 
 ext['tomcat.version'] = '10.1.55'
+ext['jackson-bom.version'] = '2.21.4'
 
 java {
 	sourceCompatibility = '17'
