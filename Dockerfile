@@ -43,8 +43,10 @@ USER app
 # Image finale légère du backend : le JDK de compilation est remplacé par un JRE.
 FROM eclipse-temurin:17-jre-alpine AS back
 
+# Mise à jour des paquets Alpine pour intégrer les correctifs de sécurité disponibles.
 # wget est utilisé par le healthcheck Docker.
-RUN apk add --no-cache wget \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache wget \
     && addgroup -S app \
     && adduser -S app -G app
 
