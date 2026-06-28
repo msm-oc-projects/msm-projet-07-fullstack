@@ -39,6 +39,12 @@ jobs:
           chmod +x ./gradlew
           ./gradlew clean test
 
+      - name: Contrôler les dépendances backend obsolètes
+        if: always()
+        continue-on-error: true
+        working-directory: back
+        run: ./gradlew dependencyUpdates --no-daemon
+
       - name: Installer les dépendances frontend
         working-directory: front
         run: npm ci
@@ -46,6 +52,13 @@ jobs:
       - name: Tester le frontend
         working-directory: front
         run: npm run test:ci
+
+      - name: Contrôler les dépendances frontend obsolètes
+        if: always()
+        continue-on-error: true
+        working-directory: front
+        run: |
+          npm outdated --long || true
 
       # L'audit porte uniquement sur les dépendances présentes dans l'image finale.
       - name: Auditer les dépendances frontend de production
